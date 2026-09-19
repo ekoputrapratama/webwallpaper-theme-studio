@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { del } from '@vercel/blob';
+import { del, get } from '@vercel/blob';
 
 export function isBlobConfigured(): boolean {
   return Boolean(
@@ -20,13 +20,23 @@ export function tmpFileNameFromBlob(url: string, fallback = 'video.mp4'): string
   }
 }
 
+export function blobAccessFromUrl(url: string): 'public' | 'private' {
+  try {
+    const { hostname } = new URL(url);
+    return hostname.includes('.private.') ? 'private' : 'public';
+  } catch {
+    return 'public';
+  }
+}
+
 export async function downloadBlobToFile(url: string, dest: string): Promise<void> {
-  const res = await fetch(url);
-  if (!res.ok || !res.body) {
-    throw new Error(`Failed to download uploaded video (${res.status})`);
+  const access = blobAccessFromUrl(url);
+  const result = await get(url, { access });
+  if (!result || result.statusCode !== 200 || !result.stream) {
+    throw new Error(`Failed to download uploaded video (status ${result?.statusCode ?? 'error'})`);
   }
   const tmp = `${dest}.part`;
-  await pipeline(Readable.fromWeb(res.body as never) as never, createWriteStream(tmp));
+  await pipeline(Readable.fromWeb(result.stream as never) as never, createWriteStream(tmp));
   fs.renameSync(tmp, dest);
 }
 
