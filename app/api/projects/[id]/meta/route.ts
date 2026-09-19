@@ -1,46 +1,45 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import {
-  META_KEYS,
-  projectDir,
-  readProject,
-  writeProject,
-  writeThemeFile,
-  videoIndexHtml,
-} from '@/lib/themes';
+import { getRequestUser } from '@/lib/auth';
+import { projectExists, readProject, updateMeta, writeTextFile } from '@/lib/persist';
+import { META_KEYS, themeContent, videoIndexHtml, type ThemeMeta } from '@/lib/themes';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function PUT(request: Request, ctx: RouteContext<'/api/projects/[id]/meta'>) {
   try {
+    const user = await getRequestUser();
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+
     const { id } = await ctx.params;
-    const dir = projectDir(id);
-    if (!fs.existsSync(dir)) {
+    if (!(await projectExists(id))) {
       return Response.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    const meta = readProject(id);
+    const { st } = await readProject(id, user.uid);
+    if (!st) return Response.json({ error: 'Project not found' }, { status: 404 });
+
     const body = (await request.json().catch(() => ({}))) as Partial<Record<(typeof META_KEYS)[number], string>>;
 
     for (const key of META_KEYS) {
-      if (body[key] !== undefined) (meta as Record<string, unknown>)[key] = String(body[key]);
+      if (body[key] !== undefined) (st as Record<string, unknown>)[key] = String(body[key]);
     }
-    if (meta.type === 'video') {
-      if (!meta.version) meta.version = '1.0';
-      if (!meta.entry) meta.entry = 'index.html';
-      if (!meta.thumbnail) meta.thumbnail = 'preview.gif';
+    if (st.type === 'video') {
+      if (!st.version) st.version = '1.0';
+      if (!st.entry) st.entry = 'index.html';
+      if (!st.thumbnail) st.thumbnail = 'preview.gif';
     }
-    meta.updatedAt = new Date().toISOString();
-    writeProject(id, meta);
 
-    if (meta.type === 'video' && meta.name) {
-      fs.writeFileSync(
-        path.join(dir, 'index.html'),
-        videoIndexHtml(meta.name, meta.video || `${id}.mp4`)
-      );
+    const meta: ThemeMeta = {
+      ...st,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (meta.type === 'video') {
+      await writeTextFile(id, user.uid, 'index.html', videoIndexHtml(meta.name, meta.video || `${id}.mp4`));
     }
-    writeThemeFile(id, meta);
+    await writeTextFile(id, user.uid, `${id}.theme`, themeContent(meta));
+    await updateMeta(id, user.uid, meta);
+
     return Response.json(meta);
   } catch (err) {
     console.error(err);

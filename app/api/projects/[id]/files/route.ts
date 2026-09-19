@@ -1,28 +1,18 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { TEXT_EXTS, projectDir, readProject, safeRel, writeProject } from '@/lib/themes';
+import { getRequestUser } from '@/lib/auth';
+import { projectExists, readProject, updateMeta, writeTextFiles } from '@/lib/persist';
+import { safeRel } from '@/lib/themes';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function notFound() {
-  return Response.json({ error: 'Project not found' }, { status: 404 });
-}
-
 export async function GET(_req: Request, ctx: RouteContext<'/api/projects/[id]/files'>) {
   try {
-    const { id } = await ctx.params;
-    const dir = projectDir(id);
-    if (!fs.existsSync(dir)) return notFound();
+    const user = await getRequestUser();
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const files: Record<string, string> = {};
-    for (const f of fs.readdirSync(dir)) {
-      const full = path.join(dir, f);
-      if (!fs.statSync(full).isFile()) continue;
-      if (f === 'project.json') continue;
-      if (!TEXT_EXTS.has(path.extname(f).toLowerCase())) continue;
-      files[f] = fs.readFileSync(full, 'utf8');
-    }
+    const { id } = await ctx.params;
+    const { st, files } = await readProject(id, user.uid);
+    if (!st) return Response.json({ error: 'Project not found' }, { status: 404 });
     return Response.json({ files });
   } catch (err) {
     console.error(err);
@@ -32,9 +22,11 @@ export async function GET(_req: Request, ctx: RouteContext<'/api/projects/[id]/f
 
 export async function PUT(request: Request, ctx: RouteContext<'/api/projects/[id]/files'>) {
   try {
+    const user = await getRequestUser();
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+
     const { id } = await ctx.params;
-    const dir = projectDir(id);
-    if (!fs.existsSync(dir)) return notFound();
+    if (!(await projectExists(id))) return Response.json({ error: 'Project not found' }, { status: 404 });
 
     const body = (await request.json().catch(() => ({}))) as { files?: Record<string, string> };
     const files = body.files;
@@ -42,17 +34,15 @@ export async function PUT(request: Request, ctx: RouteContext<'/api/projects/[id
       return Response.json({ error: 'Expected { files: {} }' }, { status: 400 });
     }
 
-    for (const [name, content] of Object.entries(files)) {
-      const rel = safeRel(name);
+    for (const name of Object.keys(files)) {
+      safeRel(name);
       if (name === 'project.json') {
         return Response.json({ error: 'project.json is reserved' }, { status: 400 });
       }
-      fs.writeFileSync(path.join(dir, rel), String(content));
     }
 
-    const meta = readProject(id);
-    meta.updatedAt = new Date().toISOString();
-    writeProject(id, meta);
+    await writeTextFiles(id, user.uid, files);
+    await updateMeta(id, user.uid, { updatedAt: new Date().toISOString() });
     return Response.json({ ok: true });
   } catch (err) {
     console.error(err);

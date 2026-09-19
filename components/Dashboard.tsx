@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { uploadVideoToStorage } from "@/lib/client-upload";
+import { signOutClient } from "@/lib/firebase";
 
 type Project = {
   id: string;
@@ -61,6 +62,24 @@ export default function Dashboard() {
   const [drag, setDrag] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoFileRef = useRef<File | null>(null);
+  const [user, setUser] = useState<{ uid: string; email: string | null; name: string | null } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/session")
+      .then((res) => (res.ok ? res.json() : ({} as { user?: unknown })))
+      .then((data) => {
+        const u = (data as { user?: { uid?: string; email?: string | null; name?: string | null } }).user;
+        if (u && u.uid) setUser({ uid: u.uid, email: u.email ?? null, name: u.name ?? null });
+      })
+      .catch(() => {});
+  }, []);
+
+  async function signOut() {
+    await signOutClient();
+    await fetch("/api/auth/session", { method: "DELETE" }).catch(() => {});
+    router.push("/login");
+    router.refresh();
+  }
 
   const load = useCallback(async () => {
     try {
@@ -234,6 +253,16 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="spacer" />
+        {user && (
+          <span style={{ fontSize: 13, opacity: 0.7, marginRight: 10 }}>
+            {user.email || user.uid}
+          </span>
+        )}
+        {user && (
+          <button className="btn btn-ghost" onClick={signOut}>
+            Sign out
+          </button>
+        )}
         <button className="btn btn-primary" onClick={openModal}>
           <span className="icon">+</span> New project
         </button>

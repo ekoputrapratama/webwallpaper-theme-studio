@@ -1,8 +1,6 @@
-import fs from 'node:fs';
 import path from 'node:path';
-import { createReadStream } from 'node:fs';
-import { Readable } from 'node:stream';
-import { projectDir } from '@/lib/themes';
+import { getRequestUser } from '@/lib/auth';
+import { readProjectFile } from '@/lib/persist';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -52,38 +50,29 @@ const MIME: Record<string, string> = {
 
 export async function GET(_req: Request, ctx: RouteContext<'/p/[id]/[[...path]]'>) {
   try {
-    const { id, path: segs } = await ctx.params;
-    const dir = projectDir(id);
-    if (!fs.existsSync(dir)) {
-      return new Response('Project not found', { status: 404 });
-    }
+    const user = await getRequestUser();
+    if (!user) return new Response('Unauthorized', { status: 401 });
 
+    const { id, path: segs } = await ctx.params;
     const rel = segs?.length ? segs.join('/') : 'index.html';
     const parts = rel.split('/');
     if (parts.some((p) => !p || p === '.' || p === '..')) {
       return new Response('Forbidden', { status: 403 });
     }
 
-    let full = path.join(dir, rel);
-    if (!fs.existsSync(full)) {
-      return new Response('Not found', { status: 404 });
-    }
-    if (fs.statSync(full).isDirectory()) {
-      full = path.join(full, 'index.html');
-      if (!fs.existsSync(full)) return new Response('Not found', { status: 404 });
-    }
+    const payload = await readProjectFile(id, rel);
+    if (!payload) return new Response('Not found', { status: 404 });
 
-    const mime = MIME[path.extname(full).toLowerCase()] || 'application/octet-stream';
-    const size = fs.statSync(full).size;
-    const stream = Readable.toWeb(createReadStream(full)) as unknown as ReadableStream;
+    const headers: Record<string, string> = {
+      'Content-Type': MIME[path.extname(rel).toLowerCase()] || 'application/octet-stream',
+      'Cache-Control': 'no-cache',
+      'Content-Length': String(payload.size),
+    };
 
-    return new Response(stream, {
-      headers: {
-        'Content-Type': mime,
-        'Content-Length': String(size),
-        'Cache-Control': 'no-cache',
-      },
-    });
+    if (payload.kind === 'text') {
+      return new Response(payload.content, { headers });
+    }
+    return new Response(payload.stream, { headers });
   } catch (err) {
     console.error(err);
     return new Response('Bad request', { status: 400 });

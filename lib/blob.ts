@@ -10,6 +10,10 @@ export function isBlobConfigured(): boolean {
   );
 }
 
+export function blobToken(): string | undefined {
+  return process.env.BLOB_READ_WRITE_TOKEN || process.env.VERCEL_OIDC_TOKEN;
+}
+
 export function tmpFileNameFromBlob(url: string, fallback = 'video.mp4'): string {
   try {
     const { pathname } = new URL(url);

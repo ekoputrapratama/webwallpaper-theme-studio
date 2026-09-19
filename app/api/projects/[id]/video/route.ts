@@ -3,20 +3,36 @@ import path from 'node:path';
 import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { buildVideoTheme, projectDir, readProject, tmpVideoPath } from '@/lib/themes';
-import { downloadBlobToFile, isBlobConfigured, tmpFileNameFromBlob, deleteBlob } from '@/lib/blob';
+import { buildVideoTheme, tmpVideoPath, videoIndexHtml } from '@/lib/themes';
+import { deleteBlob, downloadBlobToFile, isBlobConfigured, tmpFileNameFromBlob } from '@/lib/blob';
+import {
+  createProjectFromDir,
+  hydrateProjectDir,
+  readProject,
+  remoteEnabled,
+  scratchProjectDir,
+  updateMeta,
+  writeTextFile,
+} from '@/lib/persist';
+import { getRequestUser } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: Request, ctx: RouteContext<'/api/projects/[id]/video'>) {
   let tmpPath: string | null = null;
   let blobUrl: string | null = null;
+  let dir: string | null = null;
   try {
+    const user = await getRequestUser();
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+
     const { id } = await ctx.params;
-    const dir = projectDir(id);
-    if (!fs.existsSync(dir)) {
-      return Response.json({ error: 'Project not found' }, { status: 404 });
-    }
+    const { st } = await readProject(id, user.uid);
+    if (!st) return Response.json({ error: 'Project not found' }, { status: 404 });
+
+    dir = scratchProjectDir(id);
+    fs.mkdirSync(dir, { recursive: true });
+    await hydrateProjectDir(id, dir);
 
     const contentType = request.headers.get('content-type') || '';
     const isJson = contentType.includes('application/json');
@@ -43,15 +59,18 @@ export async function POST(request: Request, ctx: RouteContext<'/api/projects/[i
       await pipeline(Readable.fromWeb(file.stream() as never) as never, createWriteStream(tmpPath));
     }
 
-    const meta = readProject(id);
-    if (meta.video) fs.rmSync(path.join(dir, meta.video), { force: true });
+    if (st.video) fs.rmSync(path.join(/*turbopackIgnore: true*/ dir, st.video), { force: true });
 
     const nextMeta = await buildVideoTheme(id, dir, tmpPath, {
-      name: meta.name,
-      description: meta.description,
-      author: meta.author,
-      version: meta.version,
+      name: st.name,
+      description: st.description,
+      author: st.author,
+      version: st.version,
     });
+
+    await createProjectFromDir(id, user.uid, dir, nextMeta);
+    await writeTextFile(id, user.uid, 'index.html', videoIndexHtml(nextMeta.name, nextMeta.video || `${id}.mp4`));
+    await updateMeta(id, user.uid, nextMeta);
 
     return Response.json(nextMeta);
   } catch (err) {
@@ -59,6 +78,7 @@ export async function POST(request: Request, ctx: RouteContext<'/api/projects/[i
     return Response.json({ error: err instanceof Error ? err.message : 'Failed to replace video' }, { status: 500 });
   } finally {
     if (tmpPath) fs.rmSync(tmpPath, { force: true });
+    if (dir && remoteEnabled()) fs.rmSync(dir, { recursive: true, force: true });
     if (blobUrl) await deleteBlob(blobUrl);
   }
 }

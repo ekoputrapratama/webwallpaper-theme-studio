@@ -1,36 +1,20 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import JSZip from 'jszip';
-import { projectDir } from '@/lib/themes';
+import { getRequestUser } from '@/lib/auth';
+import { buildProjectZip, projectExists } from '@/lib/persist';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(_req: Request, ctx: RouteContext<'/api/projects/[id]/export'>) {
   try {
+    const user = await getRequestUser();
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+
     const { id } = await ctx.params;
-    const dir = projectDir(id);
-    if (!fs.existsSync(dir)) {
+    if (!(await projectExists(id))) {
       return Response.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    const zip = new JSZip();
-    const walk = (rel: string) => {
-      const abs = path.join(dir, rel);
-      const st = fs.statSync(abs);
-      if (st.isDirectory()) {
-        for (const child of fs.readdirSync(abs)) walk(rel ? path.join(rel, child) : child);
-      } else if (st.isFile() && rel !== 'project.json') {
-        zip.file(rel, fs.readFileSync(abs));
-      }
-    };
-    walk('');
-
-    const buf = await zip.generateAsync({
-      type: 'nodebuffer',
-      compression: 'DEFLATE',
-      compressionOptions: { level: 9 },
-    });
+    const buf = await buildProjectZip(id, user.uid);
 
     return new Response(new Uint8Array(buf), {
       headers: {

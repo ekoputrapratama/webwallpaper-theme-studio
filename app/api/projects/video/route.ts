@@ -1,10 +1,11 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { PROJECTS_DIR, buildVideoTheme, slugify, uniqueId, tmpVideoPath } from '@/lib/themes';
-import { downloadBlobToFile, isBlobConfigured, tmpFileNameFromBlob, deleteBlob } from '@/lib/blob';
+import { buildVideoTheme, slugify, tmpVideoPath } from '@/lib/themes';
+import { deleteBlob, downloadBlobToFile, isBlobConfigured, tmpFileNameFromBlob } from '@/lib/blob';
+import { createProjectFromDir, remoteEnabled, scratchProjectDir, uniqueProjectId } from '@/lib/persist';
+import { getRequestUser } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -39,7 +40,11 @@ async function saveUpload(file: File, tmpPath: string): Promise<void> {
 export async function POST(request: Request) {
   let tmpPath: string | null = null;
   let blobUrl: string | null = null;
+  let dir: string | null = null;
   try {
+    const user = await getRequestUser();
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+
     const contentType = request.headers.get('content-type') || '';
     const isJson = contentType.includes('application/json');
 
@@ -82,8 +87,8 @@ export async function POST(request: Request) {
       await saveUpload(file, tmpPath);
     }
 
-    const id = uniqueId(slugify(meta.name));
-    const dir = path.join(PROJECTS_DIR, id);
+    const id = await uniqueProjectId(slugify(meta.name));
+    dir = scratchProjectDir(id);
     fs.mkdirSync(dir, { recursive: true });
 
     const created = await buildVideoTheme(id, dir, tmpPath, {
@@ -93,12 +98,15 @@ export async function POST(request: Request) {
       version: meta.version,
     });
 
+    await createProjectFromDir(id, user.uid, dir, created);
+
     return Response.json(created, { status: 201 });
   } catch (err) {
     console.error(err);
     return Response.json({ error: err instanceof Error ? err.message : 'Failed to create video theme' }, { status: 500 });
   } finally {
     if (tmpPath) fs.rmSync(tmpPath, { force: true });
+    if (dir && remoteEnabled()) fs.rmSync(dir, { recursive: true, force: true });
     if (blobUrl) await deleteBlob(blobUrl);
   }
 }
