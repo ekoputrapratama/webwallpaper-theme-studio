@@ -13,7 +13,7 @@ export async function uploadVideoToStorage(
 ): Promise<VideoUpload> {
   try {
     const blob = await uploadPresigned(file.name, file, {
-      access: 'public',
+      access: 'private',
       handleUploadUrl: '/api/uploads/video',
       clientPayload,
       onUploadProgress: (event) => onProgress(event.percentage),

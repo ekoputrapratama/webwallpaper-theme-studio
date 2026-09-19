@@ -31,9 +31,17 @@ export function blobAccessFromUrl(url: string): 'public' | 'private' {
 
 export async function downloadBlobToFile(url: string, dest: string): Promise<void> {
   const access = blobAccessFromUrl(url);
-  const result = await get(url, { access });
+  let result;
+  try {
+    result = await get(url, { access });
+  } catch (err) {
+    throw new Error(
+      `Failed to download uploaded video (access=${access}, url=${url}): ${err instanceof Error ? err.message : err}`
+    );
+  }
   if (!result || result.statusCode !== 200 || !result.stream) {
-    throw new Error(`Failed to download uploaded video (status ${result?.statusCode ?? 'error'})`);
+    const detail = result ? `status=${result.statusCode}` : 'not found (404)';
+    throw new Error(`Failed to download uploaded video (access=${access}, url=${url}, ${detail})`);
   }
   const tmp = `${dest}.part`;
   await pipeline(Readable.fromWeb(result.stream as never) as never, createWriteStream(tmp));

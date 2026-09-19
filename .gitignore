@@ -41,5 +41,6 @@ yarn-error.log*
 next-env.d.ts
 
 # webwallpaper studio
+.sessions
 /projects
 $TMPDIR/webwallpaper-studio-uploads
