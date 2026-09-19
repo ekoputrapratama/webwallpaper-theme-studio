@@ -67,8 +67,14 @@ export default function Login() {
         body: JSON.stringify({ idToken }),
       });
       if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(data.error || "Sign-in could not be completed.");
+        let msg = `Sign-in failed (HTTP ${res.status})`;
+        try {
+          const data = (await res.json()) as { error?: string };
+          if (data.error) msg = data.error;
+        } catch {
+          // response was not JSON; fall back to the status message
+        }
+        setError(msg);
         setBusy(false);
         return;
       }

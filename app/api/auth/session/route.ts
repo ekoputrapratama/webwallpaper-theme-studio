@@ -21,7 +21,11 @@ const cookieOptions = {
 
 export async function POST(request: Request) {
   if (!isFirebaseAdminConfigured()) {
-    return Response.json({ error: 'Firebase is not configured' }, { status: 500 });
+    console.error('[auth] admin SDK not configured; cannot create session cookie');
+    return Response.json(
+      { error: 'Sign-in is not configured on the server (missing Firebase admin credentials)' },
+      { status: 500 }
+    );
   }
   const body = (await request.json().catch(() => ({}))) as { idToken?: string };
   if (!body.idToken) {
@@ -33,8 +37,9 @@ export async function POST(request: Request) {
     store.set(SESSION_COOKIE_NAME, sessionCookie, cookieOptions);
     return Response.json({ ok: true });
   } catch (err) {
-    console.error('[auth] failed to create session cookie', err);
-    return Response.json({ error: 'Invalid credential' }, { status: 401 });
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[auth] failed to create session cookie:', message);
+    return Response.json({ error: `Sign-in failed on the server: ${message}` }, { status: 401 });
   }
 }
 
