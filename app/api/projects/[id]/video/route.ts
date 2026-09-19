@@ -4,7 +4,7 @@ import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { buildVideoTheme, tmpVideoPath, videoIndexHtml } from '@/lib/themes';
-import { deleteBlob, downloadBlobToFile, isBlobConfigured, tmpFileNameFromBlob } from '@/lib/blob';
+import { downloadBlobToFile, isBlobConfigured, tmpFileNameFromBlob } from '@/lib/blob';
 import {
   createProjectFromDir,
   hydrateProjectDir,
@@ -79,6 +79,5 @@ export async function POST(request: Request, ctx: RouteContext<'/api/projects/[i
   } finally {
     if (tmpPath) fs.rmSync(tmpPath, { force: true });
     if (dir && remoteEnabled()) fs.rmSync(dir, { recursive: true, force: true });
-    if (blobUrl) await deleteBlob(blobUrl);
   }
 }

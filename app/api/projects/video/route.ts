@@ -3,7 +3,7 @@ import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { buildVideoTheme, slugify, tmpVideoPath } from '@/lib/themes';
-import { deleteBlob, downloadBlobToFile, isBlobConfigured, tmpFileNameFromBlob } from '@/lib/blob';
+import { downloadBlobToFile, isBlobConfigured, tmpFileNameFromBlob } from '@/lib/blob';
 import { createProjectFromDir, remoteEnabled, scratchProjectDir, uniqueProjectId } from '@/lib/persist';
 import { getRequestUser } from '@/lib/auth';
 
@@ -107,6 +107,5 @@ export async function POST(request: Request) {
   } finally {
     if (tmpPath) fs.rmSync(tmpPath, { force: true });
     if (dir && remoteEnabled()) fs.rmSync(dir, { recursive: true, force: true });
-    if (blobUrl) await deleteBlob(blobUrl);
   }
 }
