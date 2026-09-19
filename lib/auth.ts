@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import { SESSION_COOKIE_NAME, isFirebaseAdminConfigured, verifySessionCookie } from './firebase-admin';
+import { SESSION_COOKIE_NAME, isFirebaseAdminConfigured, verifyIdToken } from './firebase-admin';
 
 export type RequestUser = { uid: string; email: string | null; name: string | null };
 
@@ -10,7 +10,7 @@ export async function getRequestUser(): Promise<RequestUser | null> {
   const raw = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   if (!raw) return null;
   try {
-    return await verifySessionCookie(raw);
+    return await verifyIdToken(raw);
   } catch {
     return null;
   }

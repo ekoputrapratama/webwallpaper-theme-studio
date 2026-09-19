@@ -96,3 +96,10 @@ export async function verifySessionCookie(
   const decoded = await getAdminAuth().verifySessionCookie(sessionCookie, true);
   return { uid: decoded.uid, email: decoded.email ?? null, name: decoded.name ?? null };
 }
+
+export async function verifyIdToken(
+  idToken: string
+): Promise<{ uid: string; email: string | null; name: string | null }> {
+  const decoded = await getAdminAuth().verifyIdToken(idToken);
+  return { uid: decoded.uid, email: decoded.email ?? null, name: decoded.name ?? null };
+}
