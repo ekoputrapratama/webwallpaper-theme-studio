@@ -411,7 +411,11 @@ export default function Editor({ id }: { id: string }) {
     setVideoBusy(true);
     setVideoProgress(0);
     try {
-      const uploaded = await uploadVideoToStorage(file, setVideoProgress);
+      const uploaded = await uploadVideoToStorage(
+        file,
+        setVideoProgress,
+        JSON.stringify({ projectId: id, replace: true })
+      );
       if (uploaded.kind === "blob") {
         const res = await fetch(`/api/projects/${id}/video`, {
           method: "POST",

@@ -4,7 +4,7 @@ import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { buildVideoTheme, tmpVideoPath, videoIndexHtml } from '@/lib/themes';
-import { downloadUrlToFile, isFirebaseStorageConfigured, tmpFileNameFromUrl } from '@/lib/storage';
+import { deleteBlob, downloadBlobToFile, isBlobConfigured, tmpFileNameFromBlob } from '@/lib/blob';
 import {
   createProjectFromDir,
   hydrateProjectDir,
@@ -37,15 +37,15 @@ export async function POST(request: Request, ctx: RouteContext<'/api/projects/[i
     const contentType = request.headers.get('content-type') || '';
     const isJson = contentType.includes('application/json');
 
-    if (isJson && isFirebaseStorageConfigured()) {
+    if (isJson && isBlobConfigured()) {
       const body = (await request.json().catch(() => ({}))) as { videoUrl?: string };
       if (!body.videoUrl) {
         return Response.json({ error: 'Please upload a video file' }, { status: 400 });
       }
       blobUrl = body.videoUrl;
-      const fileName = tmpFileNameFromUrl(blobUrl);
+      const fileName = tmpFileNameFromBlob(blobUrl);
       tmpPath = tmpVideoPath(fileName);
-      await downloadUrlToFile(blobUrl, tmpPath);
+      await downloadBlobToFile(blobUrl, tmpPath);
     } else {
       const form = await request.formData();
       const file = form.get('video');
@@ -79,5 +79,6 @@ export async function POST(request: Request, ctx: RouteContext<'/api/projects/[i
   } finally {
     if (tmpPath) fs.rmSync(tmpPath, { force: true });
     if (dir && remoteEnabled()) fs.rmSync(dir, { recursive: true, force: true });
+    if (blobUrl) await deleteBlob(blobUrl);
   }
 }

@@ -3,7 +3,7 @@ import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { buildVideoTheme, slugify, tmpVideoPath } from '@/lib/themes';
-import { downloadUrlToFile, isFirebaseStorageConfigured, tmpFileNameFromUrl } from '@/lib/storage';
+import { deleteBlob, downloadBlobToFile, isBlobConfigured, tmpFileNameFromBlob } from '@/lib/blob';
 import { createProjectFromDir, remoteEnabled, scratchProjectDir, uniqueProjectId } from '@/lib/persist';
 import { getRequestUser } from '@/lib/auth';
 
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     let meta: VideoForm;
     let fileName = 'video.mp4';
 
-    if (isJson && isFirebaseStorageConfigured()) {
+    if (isJson && isBlobConfigured()) {
       const body = (await request.json().catch(() => ({}))) as {
         videoUrl?: string;
         name?: string;
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
         return Response.json({ error: 'Please upload a video file' }, { status: 400 });
       }
       blobUrl = body.videoUrl;
-      fileName = tmpFileNameFromUrl(blobUrl);
+      fileName = tmpFileNameFromBlob(blobUrl);
       meta = {
         name: String(body.name || '').trim(),
         description: String(body.description || '').trim(),
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       if (!meta.name) return Response.json({ error: 'Project name is required' }, { status: 400 });
 
       tmpPath = tmpVideoPath(fileName);
-      await downloadUrlToFile(blobUrl, tmpPath);
+      await downloadBlobToFile(blobUrl, tmpPath);
     } else {
       const { meta: m, file } = await readForm(request);
       if (!m.name) return Response.json({ error: 'Project name is required' }, { status: 400 });
@@ -107,5 +107,6 @@ export async function POST(request: Request) {
   } finally {
     if (tmpPath) fs.rmSync(tmpPath, { force: true });
     if (dir && remoteEnabled()) fs.rmSync(dir, { recursive: true, force: true });
+    if (blobUrl) await deleteBlob(blobUrl);
   }
 }

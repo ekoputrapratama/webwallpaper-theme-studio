@@ -1,7 +1,6 @@
 import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth, type Auth } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
-import { getStorage, type Storage } from 'firebase-admin/storage';
 
 export const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || 'fb_session';
 
@@ -33,26 +32,17 @@ export function isFirebaseAdminConfigured(): boolean {
 function createCredential() {
   const sa = serviceAccountFromJson();
   if (sa) {
-    credentialsLog(sa.project_id, sa.client_email);
     return cert({
       projectId: sa.project_id,
       clientEmail: sa.client_email,
       privateKey: sa.private_key,
     });
   }
-  credentialsLog(process.env.FIREBASE_PROJECT_ID, process.env.FIREBASE_CLIENT_EMAIL);
   return cert({
     projectId: process.env.FIREBASE_PROJECT_ID,
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
     privateKey: process.env.FIREBASE_PRIVATE_KEY,
   });
-}
-
-let loggedCredentials = false;
-function credentialsLog(projectId?: string, clientEmail?: string) {
-  if (loggedCredentials) return;
-  loggedCredentials = true;
-  console.log(`[auth] service account: ${clientEmail ?? '(none)'} (project ${projectId ?? '(none)'})`);
 }
 
 export function getAdminApp() {
@@ -76,14 +66,6 @@ export function getDb(): Firestore {
     : getFirestore(getAdminApp());
 }
 
-export function getAdminStorage(): Storage {
-  return getStorage(getAdminApp());
-}
-
-export function adminStorageBucketName(): string | undefined {
-  return process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim() || undefined;
-}
-
 export async function createSessionCookie(idToken: string): Promise<string> {
   return getAdminAuth().createSessionCookie(idToken, {
     expiresIn: 60 * 60 * 24 * 14 * 1000,
@@ -94,12 +76,5 @@ export async function verifySessionCookie(
   sessionCookie: string
 ): Promise<{ uid: string; email: string | null; name: string | null }> {
   const decoded = await getAdminAuth().verifySessionCookie(sessionCookie, true);
-  return { uid: decoded.uid, email: decoded.email ?? null, name: decoded.name ?? null };
-}
-
-export async function verifyIdToken(
-  idToken: string
-): Promise<{ uid: string; email: string | null; name: string | null }> {
-  const decoded = await getAdminAuth().verifyIdToken(idToken);
   return { uid: decoded.uid, email: decoded.email ?? null, name: decoded.name ?? null };
 }

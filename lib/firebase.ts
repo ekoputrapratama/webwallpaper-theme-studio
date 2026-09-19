@@ -26,7 +26,7 @@ export function isFirebaseClientConfigured(): boolean {
   return REQUIRED_KEYS.every((k) => Boolean(cfg[k]));
 }
 
-export function getClientApp(): FirebaseApp | null {
+function getClientApp(): FirebaseApp | null {
   if (!isFirebaseClientConfigured()) return null;
   if (!getApps().length) initializeApp(firebaseClientConfig());
   return getApp();
