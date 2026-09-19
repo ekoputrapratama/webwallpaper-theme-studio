@@ -33,17 +33,26 @@ export function isFirebaseAdminConfigured(): boolean {
 function createCredential() {
   const sa = serviceAccountFromJson();
   if (sa) {
+    credentialsLog(sa.project_id, sa.client_email);
     return cert({
       projectId: sa.project_id,
       clientEmail: sa.client_email,
       privateKey: sa.private_key,
     });
   }
+  credentialsLog(process.env.FIREBASE_PROJECT_ID, process.env.FIREBASE_CLIENT_EMAIL);
   return cert({
     projectId: process.env.FIREBASE_PROJECT_ID,
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
     privateKey: process.env.FIREBASE_PRIVATE_KEY,
   });
+}
+
+let loggedCredentials = false;
+function credentialsLog(projectId?: string, clientEmail?: string) {
+  if (loggedCredentials) return;
+  loggedCredentials = true;
+  console.log(`[auth] service account: ${clientEmail ?? '(none)'} (project ${projectId ?? '(none)'})`);
 }
 
 export function getAdminApp() {
