@@ -8,10 +8,10 @@ Themes made here are ready to drop into the WebWallpaper themes folder on any KD
 
 You can create two kinds of projects:
 
-| Type | Output |
-| ---- | ------ |
-| **HTML5 + JS + WebGL** | A full project with `index.html` (WebGL starter included), CSS, and JavaScript. Edit everything in a built-in code editor with a live preview. |
-| **Video only** | Upload a looping video. The app generates `index.html` (fullscreen autoplay/loop), a `preview.gif` thumbnail (240px wide, via built-in ffmpeg), and the `.theme` manifest. |
+| Type                   | Output                                                                                                                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **HTML5 + JS + WebGL** | A full project with `index.html` (WebGL starter included), CSS, and JavaScript. Edit everything in a built-in code editor with a live preview.                             |
+| **Video only**         | Upload a looping video. The app generates `index.html` (fullscreen autoplay/loop), a `preview.gif` thumbnail (240px wide, via built-in ffmpeg), and the `.theme` manifest. |
 
 Every project exports as a **`.zip`** (or its folder) containing:
 
@@ -27,7 +27,7 @@ An INI-style manifest with lowercase keys:
 [Theme]
 name=My Wallpaper
 description=Made with WebWallpaper Theme Studio
-author=Someone
+author=Somebody
 version=1.0
 thumbnail=thumbnail.svg
 entry=index.html
@@ -56,10 +56,10 @@ Note: `ffmpeg-static` downloads its binary during `npm install`. If npm blocks i
 
 ## Configuration
 
-| Env var | Default | Purpose |
-| ------- | ------- | ------- |
-| `WWC_PROJECTS` | system temp dir | Where project folders are stored. Set to your themes folder to write directly into your WebWallpaper collection. |
-| `FFMPEG_PATH` | bundled `ffmpeg-static` binary | Overrides the ffmpeg used for `preview.gif` generation. Falls back to a system `ffmpeg` on `PATH` if neither is present. |
+| Env var        | Default                        | Purpose                                                                                                                  |
+| -------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `WWC_PROJECTS` | system temp dir                | Where project folders are stored. Set to your themes folder to write directly into your WebWallpaper collection.         |
+| `FFMPEG_PATH`  | bundled `ffmpeg-static` binary | Overrides the ffmpeg used for `preview.gif` generation. Falls back to a system `ffmpeg` on `PATH` if neither is present. |
 
 ## Install the result in WebWallpaper
 
