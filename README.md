@@ -31,7 +31,7 @@ name=My Wallpaper
 description=Made with WebWallpaper Theme Studio
 author=Somebody
 version=1.0
-thumbnail=thumbnail.svg
+thumbnail=preview.gif
 entry=index.html
 ```
 
@@ -73,23 +73,23 @@ See `.env.example` for the full list. Copy it to `.env.local` first:
 cp .env.example .env.local
 ```
 
-| Env var                        | Purpose                                                                                        |
-| ------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_FIREBASE_API_KEY` | Firebase **client** SDK config (Firebase console → Project settings). Used for sign-in.        |
-| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Public Firebase Auth domain.                                                               |
-| `NEXT_PUBLIC_FIREBASE_PROJECT_ID`  | Firebase project ID.                                                                        |
-| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | Firebase Storage bucket; required for video uploads and project binaries (client + server both use it). |
-| `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Firebase sender ID.                                                                     |
-| `NEXT_PUBLIC_FIREBASE_APP_ID`  | Firebase app ID.                                                                               |
-| `NEXT_PUBLIC_FIRESTORE_DATABASE_ID` | Optional Firestore database ID. Empty = default database.                                   |
-| `FIREBASE_SERVICE_ACCOUNT_JSON` | Full **service account** JSON as a single string (Firebase Admin SDK: Firestore + session cookies). |
-| `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY` | Alternative to the JSON above; only needed if you didn't set it.            |
-| `SESSION_COOKIE_NAME`          | Optional session cookie name (default `fb_session`).                                           |
+| Env var                                                                  | Purpose                                                                                                 |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_FIREBASE_API_KEY`                                           | Firebase **client** SDK config (Firebase console → Project settings). Used for sign-in.                 |
+| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`                                       | Public Firebase Auth domain.                                                                            |
+| `NEXT_PUBLIC_FIREBASE_PROJECT_ID`                                        | Firebase project ID.                                                                                    |
+| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`                                    | Firebase Storage bucket; required for video uploads and project binaries (client + server both use it). |
+| `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`                               | Firebase sender ID.                                                                                     |
+| `NEXT_PUBLIC_FIREBASE_APP_ID`                                            | Firebase app ID.                                                                                        |
+| `NEXT_PUBLIC_FIRESTORE_DATABASE_ID`                                      | Optional Firestore database ID. Empty = default database.                                               |
+| `FIREBASE_SERVICE_ACCOUNT_JSON`                                          | Full **service account** JSON as a single string (Firebase Admin SDK: Firestore + session cookies).     |
+| `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY` | Alternative to the JSON above; only needed if you didn't set it.                                        |
+| `SESSION_COOKIE_NAME`                                                    | Optional session cookie name (default `fb_session`).                                                    |
 
 ### Deploying to Vercel
 
 1. Create/attach a Firebase **web app** (for the client `NEXT_PUBLIC_FIREBASE_*` keys) and enable **Firestore**, **Authentication** (email or Google), and **Storage**.
-2. Download a **service account** JSON: Project settings → Service accounts → *Generate new private key*.
+2. Download a **service account** JSON: Project settings → Service accounts → _Generate new private key_.
 3. Set the **Storage security rules** (Firebase console → Storage → Rules) so the app can upload/read client uploads; project binaries are only ever handled by the Admin SDK (which bypasses rules):
 
    ```
