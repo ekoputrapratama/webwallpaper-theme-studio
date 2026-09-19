@@ -36,6 +36,9 @@ export function scratchProjectDir(id: string): string {
 }
 
 const remote = remoteEnabled();
+console.log(
+  `[persist] storage mode: ${remote ? 'firestore+blob (durable)' : 'local /tmp (ephemeral — configure Firebase Admin)'}`
+);
 
 function projectPrefix(id: string): string {
   return `projects/${id}/`;
