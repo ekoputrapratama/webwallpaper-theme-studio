@@ -4,6 +4,8 @@ A web-based studio for creating **WebWallpaper themes** — wallpapers for **Web
 
 Themes made here are ready to drop into the WebWallpaper themes folder on any KDE Plasma machine.
 
+Deploys to **Vercel** with **Firebase Auth** for sign-in, **Cloud Firestore** for project metadata, and **Vercel Blob** for large files (uploaded videos, preview GIFs).
+
 ## What themes does it make?
 
 You can create two kinds of projects:
@@ -56,10 +58,52 @@ Note: `ffmpeg-static` downloads its binary during `npm install`. If npm blocks i
 
 ## Configuration
 
+### Local-only settings
+
 | Env var        | Default                        | Purpose                                                                                                                  |
 | -------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | `WWC_PROJECTS` | system temp dir                | Where project folders are stored. Set to your themes folder to write directly into your WebWallpaper collection.         |
 | `FFMPEG_PATH`  | bundled `ffmpeg-static` binary | Overrides the ffmpeg used for `preview.gif` generation. Falls back to a system `ffmpeg` on `PATH` if neither is present. |
+
+### Firebase + Vercel Blob (sign-in, metadata, large files)
+
+See `.env.example` for the full list. Copy it to `.env.local` first:
+
+```bash
+cp .env.example .env.local
+```
+
+| Env var                        | Purpose                                                                                        |
+| ------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `BLOB_READ_WRITE_TOKEN`        | Vercel Blob read-write token, from a Blob store in the Vercel dashboard.                       |
+| `BLOB_STORE_ID`                | The Blob store ID (`store_…`). Only needed if you use more than one store.                     |
+| `NEXT_PUBLIC_FIREBASE_API_KEY` | Firebase **client** SDK config (Firebase console → Project settings). Used for sign-in.        |
+| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Public Firebase Auth domain.                                                               |
+| `NEXT_PUBLIC_FIREBASE_PROJECT_ID`  | Firebase project ID.                                                                        |
+| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | Firebase Storage bucket.                                                                  |
+| `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Firebase sender ID.                                                                     |
+| `NEXT_PUBLIC_FIREBASE_APP_ID`  | Firebase app ID.                                                                               |
+| `NEXT_PUBLIC_FIRESTORE_DATABASE_ID` | Optional Firestore database ID. Empty = default database.                                   |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Full **service account** JSON as a single string (Firebase Admin SDK: Firestore + session cookies). |
+| `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY` | Alternative to the JSON above; only needed if you didn't set it.            |
+| `SESSION_COOKIE_NAME`          | Optional session cookie name (default `fb_session`).                                           |
+
+### Deploying to Vercel
+
+1. Create a **Blob store** in the Vercel dashboard and copy its read-write token.
+2. In the Firebase console: create/attach a **web app** (for the client `NEXT_PUBLIC_FIREBASE_*` keys) and enable **Firestore** + **Authentication** (email or Google).
+3. Download a **service account** JSON: Project settings → Service accounts → *Generate new private key*.
+4. Add the env vars above in **Vercel → Project → Settings → Environment Variables** for both `Production` and `Preview`.
+5. Deploy (via git push with the bundled GitHub Actions workflow, or `vercel` CLI). Sign in at the `/login` page.
+
+**Local vs. durable storage** — once Firebase Admin is configured, projects persist in Firestore + Blob and a startup log prints `[persist] storage mode: firestore+blob (durable)`. Without it, the app falls back to a local temp dir (`local /tmp (ephemeral)`), which does not survive server restarts or scale across functions.
+
+**Gotchas**
+
+- `FIREBASE_SERVICE_ACCOUNT_JSON` must be a single line with `\n` escapes preserved in `private_key`. Generate it with `jq -c < webwallpaper-…-firebase-adminsdk-….json`. If the key ever contains a literal `...` it has been redacted/truncated and sign-in will fail with `Failed to parse private key`.
+- The `private_key` is ~1700 characters; a value of a few dozen characters means it was truncated and won't work.
+- Uploaded source videos are kept in the Blob store (they are not deleted after a theme is built).
+- `package.json` pins `jose@5.10.0` via an `overrides` block. This is required so `firebase-admin`'s `jwks-rsa` can be loaded by the Vercel/Turbopack bundle (jose v6 is ESM-only); don't remove it.
 
 ## Install the result in WebWallpaper
 
