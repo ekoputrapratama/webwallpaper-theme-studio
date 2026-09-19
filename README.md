@@ -4,7 +4,7 @@ A web-based studio for creating **WebWallpaper themes** — wallpapers for **Web
 
 Themes made here are ready to drop into the WebWallpaper themes folder on any KDE Plasma machine.
 
-Deploys to **Vercel** with **Firebase Auth** for sign-in, **Cloud Firestore** for project metadata, and **Vercel Blob** for large files (uploaded videos, preview GIFs).
+Deploys to **Vercel** with **Firebase Auth** for sign-in, **Cloud Firestore** for project metadata, and **Firebase Storage** for large files (uploaded source videos, preview GIFs, project binaries).
 
 ## What themes does it make?
 
@@ -65,7 +65,7 @@ Note: `ffmpeg-static` downloads its binary during `npm install`. If npm blocks i
 | `WWC_PROJECTS` | system temp dir                | Where project folders are stored. Set to your themes folder to write directly into your WebWallpaper collection.         |
 | `FFMPEG_PATH`  | bundled `ffmpeg-static` binary | Overrides the ffmpeg used for `preview.gif` generation. Falls back to a system `ffmpeg` on `PATH` if neither is present. |
 
-### Firebase + Vercel Blob (sign-in, metadata, large files)
+### Firebase + Firebase Storage (sign-in, metadata, large files)
 
 See `.env.example` for the full list. Copy it to `.env.local` first:
 
@@ -75,12 +75,10 @@ cp .env.example .env.local
 
 | Env var                        | Purpose                                                                                        |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `BLOB_READ_WRITE_TOKEN`        | Vercel Blob read-write token, from a Blob store in the Vercel dashboard.                       |
-| `BLOB_STORE_ID`                | The Blob store ID (`store_…`). Only needed if you use more than one store.                     |
 | `NEXT_PUBLIC_FIREBASE_API_KEY` | Firebase **client** SDK config (Firebase console → Project settings). Used for sign-in.        |
 | `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Public Firebase Auth domain.                                                               |
 | `NEXT_PUBLIC_FIREBASE_PROJECT_ID`  | Firebase project ID.                                                                        |
-| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | Firebase Storage bucket.                                                                  |
+| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | Firebase Storage bucket; required for video uploads and project binaries (client + server both use it). |
 | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Firebase sender ID.                                                                     |
 | `NEXT_PUBLIC_FIREBASE_APP_ID`  | Firebase app ID.                                                                               |
 | `NEXT_PUBLIC_FIRESTORE_DATABASE_ID` | Optional Firestore database ID. Empty = default database.                                   |
@@ -90,19 +88,35 @@ cp .env.example .env.local
 
 ### Deploying to Vercel
 
-1. Create a **Blob store** in the Vercel dashboard and copy its read-write token.
-2. In the Firebase console: create/attach a **web app** (for the client `NEXT_PUBLIC_FIREBASE_*` keys) and enable **Firestore** + **Authentication** (email or Google).
-3. Download a **service account** JSON: Project settings → Service accounts → *Generate new private key*.
+1. Create/attach a Firebase **web app** (for the client `NEXT_PUBLIC_FIREBASE_*` keys) and enable **Firestore**, **Authentication** (email or Google), and **Storage**.
+2. Download a **service account** JSON: Project settings → Service accounts → *Generate new private key*.
+3. Set the **Storage security rules** (Firebase console → Storage → Rules) so the app can upload/read client uploads; project binaries are only ever handled by the Admin SDK (which bypasses rules):
+
+   ```
+   rules_version = '2';
+   service firebase.storage {
+     match /b/{bucket}/o {
+       match /uploads/{allPaths=**} {
+         allow read, write: if request.auth != null;
+       }
+       match /projects/{allPaths=**} {
+         allow read, write: if false;
+       }
+     }
+   }
+   ```
+
 4. Add the env vars above in **Vercel → Project → Settings → Environment Variables** for both `Production` and `Preview`.
 5. Deploy (via git push with the bundled GitHub Actions workflow, or `vercel` CLI). Sign in at the `/login` page.
 
-**Local vs. durable storage** — once Firebase Admin is configured, projects persist in Firestore + Blob and a startup log prints `[persist] storage mode: firestore+blob (durable)`. Without it, the app falls back to a local temp dir (`local /tmp (ephemeral)`), which does not survive server restarts or scale across functions.
+**Local vs. durable storage** — once Firebase Admin is configured, projects persist in Firestore + Firebase Storage and a startup log prints `[persist] storage mode: firestore+blob (durable)`. Without it, the app falls back to a local temp dir (`local /tmp (ephemeral)`), which does not survive server restarts or scale across functions.
 
 **Gotchas**
 
 - `FIREBASE_SERVICE_ACCOUNT_JSON` must be a single line with `\n` escapes preserved in `private_key`. Generate it with `jq -c < webwallpaper-…-firebase-adminsdk-….json`. If the key ever contains a literal `...` it has been redacted/truncated and sign-in will fail with `Failed to parse private key`.
 - The `private_key` is ~1700 characters; a value of a few dozen characters means it was truncated and won't work.
-- Uploaded source videos are kept in the Blob store (they are not deleted after a theme is built).
+- Video uploads go **directly from the browser to Firebase Storage** (`uploads/<uid>/…`), then the server downloads, builds the theme, and stores project binaries under `projects/<id>/…`.
+- Uploaded source videos are kept in Firebase Storage (they are not deleted after a theme is built).
 - `package.json` pins `jose@5.10.0` via an `overrides` block. This is required so `firebase-admin`'s `jwks-rsa` can be loaded by the Vercel/Turbopack bundle (jose v6 is ESM-only); don't remove it.
 
 ## Install the result in WebWallpaper
@@ -116,7 +130,9 @@ cp .env.example .env.local
 ```
 lib/ffmpeg.ts         bundled-ffmpeg resolution (static → env → system)
 lib/themes.ts         theme build logic (.theme writer, templates, gif generation)
-app/api/projects/     project CRUD, video upload, meta updates, zip export
+lib/storage.ts        Firebase Storage adapter (project binaries, video downloads)
+lib/persist.ts        project storage (Firestore + Firebase Storage, or local /tmp)
+app/api/projects/     project CRUD, video build, meta updates, zip export
 app/p/                serves each project's files for live previews
 components/           dashboard (project list + creation) and code editor
 ```

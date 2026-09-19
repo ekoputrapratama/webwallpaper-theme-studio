@@ -5,9 +5,8 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import JSZip from 'jszip';
-import { del, get, list, put } from '@vercel/blob';
 import { PROJECTS_DIR, TEXT_EXTS, projectDir, safeRel, type ThemeMeta } from './themes';
-import { blobToken, isBlobConfigured } from './blob';
+import { isFirebaseStorageConfigured, storageDelete, storageList, storagePut, storageRead } from './storage';
 import { getDb, isFirebaseAdminConfigured } from './firebase-admin';
 
 export type StoredProject = ThemeMeta & { uid: string | null };
@@ -17,7 +16,7 @@ export type ProjectFilePayload =
   | { kind: 'stream'; stream: ReadableStream; size: number };
 
 export function remoteEnabled(): boolean {
-  return isFirebaseAdminConfigured() && isBlobConfigured();
+  return isFirebaseAdminConfigured() && isFirebaseStorageConfigured();
 }
 
 async function streamToBuffer(stream: ReadableStream): Promise<Buffer> {
@@ -167,8 +166,8 @@ export async function listProjectFiles(id: string, uid: string | null): Promise<
     const d = await readDoc(id);
     if (!d || (uid && String(d.uid || '') !== uid)) return [];
     const names = new Set<string>(Object.keys(filesFromDoc(d)));
-    const res = await list({ prefix: projectPrefix(id), token: blobToken() });
-    for (const b of res.blobs) {
+    const objects = await storageList(projectPrefix(id));
+    for (const b of objects) {
       const name = b.pathname.slice(projectPrefix(id).length);
       if (name) names.add(name);
     }
@@ -222,10 +221,7 @@ export async function createProjectFromDir(
     }
   }
   for (const b of blobs) {
-    await put(blobKey(id, b.name), b.data, {
-      access: 'private',
-      token: blobToken(),
-    });
+    await storagePut(blobKey(id, b.name), b.data);
   }
   await getDb().collection('projects').doc(id).set({ uid, ...meta, files });
 }
@@ -238,12 +234,12 @@ export async function hydrateProjectDir(id: string, dir: string): Promise<void> 
   for (const [name, content] of Object.entries(filesFromDoc(d))) {
     fs.writeFileSync(path.join(dir, safeRel(name)), content);
   }
-  const res = await list({ prefix: projectPrefix(id), token: blobToken() });
-  for (const b of res.blobs) {
+  const objects = await storageList(projectPrefix(id));
+  for (const b of objects) {
     const name = b.pathname.slice(projectPrefix(id).length);
     if (!name) continue;
-    const got = await get(b.pathname, { access: 'private', token: blobToken() });
-    if (!got || !got.stream) continue;
+    const got = await storageRead(b.pathname);
+    if (!got) continue;
     const tmp = `${path.join(dir, name)}.part`;
     await pipeline(Readable.fromWeb(got.stream as never) as never, createWriteStream(tmp));
     fs.renameSync(tmp, path.join(dir, name));
@@ -311,10 +307,7 @@ export async function deleteProjectFile(
       await getDb().collection('projects').doc(id).set({ files }, { merge: true });
       return;
     }
-    const res = await list({ prefix: blobKey(id, name), token: blobToken() });
-    const match = res.blobs.find((b) => b.pathname === blobKey(id, name));
-    if (!match) throw new Error('File not found');
-    await del(match.url ?? blobKey(id, name), { token: blobToken() });
+    await storageDelete(blobKey(id, name));
     return;
   }
   const full = path.join(projectDir(id), safeRel(name));
@@ -326,9 +319,9 @@ export async function deleteProject(id: string, uid: string | null): Promise<voi
   if (isRemote()) {
     const d = await readDoc(id);
     if (!d || (uid && String(d.uid || '') !== uid)) throw new Error('Project not found');
-    const res = await list({ prefix: projectPrefix(id), token: blobToken() });
-    for (const b of res.blobs) {
-      await del(b.url ?? b.pathname, { token: blobToken() });
+    const objects = await storageList(projectPrefix(id));
+    for (const b of objects) {
+      await storageDelete(b.pathname);
     }
     await getDb().collection('projects').doc(id).delete();
     return;
@@ -352,15 +345,12 @@ export async function readProjectFile(
       const content = files[name];
       return { kind: 'text', content, size: Buffer.byteLength(content, 'utf8') };
     }
-    const res = await list({ prefix: blobKey(id, name), token: blobToken() });
-    const match = res.blobs.find((b) => b.pathname === blobKey(id, name));
-    if (!match) return null;
-    const got = await get(match.pathname, { access: 'private', token: blobToken() });
-    if (!got || !got.stream) return null;
+    const got = await storageRead(blobKey(id, name));
+    if (!got) return null;
     return {
       kind: 'stream',
       stream: got.stream as unknown as ReadableStream,
-      size: match.size,
+      size: got.size,
     };
   }
 
@@ -384,12 +374,12 @@ export async function buildProjectZip(id: string, uid: string | null): Promise<B
     for (const [name, content] of Object.entries(filesFromDoc(d))) {
       zip.file(name, content);
     }
-    const res = await list({ prefix: projectPrefix(id), token: blobToken() });
-    for (const b of res.blobs) {
+    const objects = await storageList(projectPrefix(id));
+    for (const b of objects) {
       const name = b.pathname.slice(projectPrefix(id).length);
       if (!name) continue;
-      const got = await get(b.pathname, { access: 'private', token: blobToken() });
-      if (!got?.stream) continue;
+      const got = await storageRead(b.pathname);
+      if (!got) continue;
       zip.file(name, new Uint8Array(await streamToBuffer(got.stream as unknown as ReadableStream)));
     }
   } else {
