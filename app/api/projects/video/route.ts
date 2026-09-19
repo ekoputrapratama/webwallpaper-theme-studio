@@ -4,6 +4,7 @@ import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { PROJECTS_DIR, buildVideoTheme, slugify, uniqueId, tmpVideoPath } from '@/lib/themes';
+import { downloadBlobToFile, isBlobConfigured, tmpFileNameFromBlob, deleteBlob } from '@/lib/blob';
 
 export const runtime = 'nodejs';
 
@@ -37,16 +38,49 @@ async function saveUpload(file: File, tmpPath: string): Promise<void> {
 
 export async function POST(request: Request) {
   let tmpPath: string | null = null;
+  let blobUrl: string | null = null;
   try {
-    const { meta, file } = await readForm(request);
-    if (!meta.name) return Response.json({ error: 'Project name is required' }, { status: 400 });
-    if (!file) return Response.json({ error: 'Please upload a video file' }, { status: 400 });
-    if (!file.type.startsWith('video/')) {
-      return Response.json({ error: 'Only video files are allowed' }, { status: 400 });
-    }
+    const contentType = request.headers.get('content-type') || '';
+    const isJson = contentType.includes('application/json');
 
-    tmpPath = tmpVideoPath(file.name);
-    await saveUpload(file, tmpPath);
+    let meta: VideoForm;
+    let fileName = 'video.mp4';
+
+    if (isJson && isBlobConfigured()) {
+      const body = (await request.json().catch(() => ({}))) as {
+        videoUrl?: string;
+        name?: string;
+        description?: string;
+        author?: string;
+        version?: string;
+      };
+      if (!body.videoUrl) {
+        return Response.json({ error: 'Please upload a video file' }, { status: 400 });
+      }
+      blobUrl = body.videoUrl;
+      fileName = tmpFileNameFromBlob(blobUrl);
+      meta = {
+        name: String(body.name || '').trim(),
+        description: String(body.description || '').trim(),
+        author: String(body.author || '').trim(),
+        version: String(body.version || '1.0').trim(),
+      };
+      if (!meta.name) return Response.json({ error: 'Project name is required' }, { status: 400 });
+
+      tmpPath = tmpVideoPath(fileName);
+      await downloadBlobToFile(blobUrl, tmpPath);
+    } else {
+      const { meta: m, file } = await readForm(request);
+      if (!m.name) return Response.json({ error: 'Project name is required' }, { status: 400 });
+      if (!file) return Response.json({ error: 'Please upload a video file' }, { status: 400 });
+      if (!file.type.startsWith('video/')) {
+        return Response.json({ error: 'Only video files are allowed' }, { status: 400 });
+      }
+      meta = m;
+      fileName = file.name;
+      tmpPath = tmpVideoPath(fileName);
+      await saveUpload(file, tmpPath);
+    }
 
     const id = uniqueId(slugify(meta.name));
     const dir = path.join(PROJECTS_DIR, id);
@@ -65,5 +99,6 @@ export async function POST(request: Request) {
     return Response.json({ error: err instanceof Error ? err.message : 'Failed to create video theme' }, { status: 500 });
   } finally {
     if (tmpPath) fs.rmSync(tmpPath, { force: true });
+    if (blobUrl) await deleteBlob(blobUrl);
   }
 }

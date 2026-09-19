@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { uploadVideoToStorage } from "@/lib/client-upload";
 
 type Project = {
   id: string;
@@ -126,7 +127,7 @@ export default function Dashboard() {
     }
   }
 
-  function createVideo() {
+  async function createVideo() {
     const n = name.trim();
     if (!n) {
       setModalError("Give your theme a name.");
@@ -137,17 +138,49 @@ export default function Dashboard() {
       return;
     }
 
-    const form = new FormData();
-    form.append("name", n);
-    form.append("author", author);
-    form.append("description", description);
-    form.append("version", version);
     const file = videoFileRef.current;
     if (!file) {
       setModalError("Please choose a video file to upload.");
       return;
     }
-    form.append("video", file);
+
+    setPhase("Uploading and generating preview.gif (this can take a moment)…");
+    setUploading(true);
+    setProgress(0);
+
+    const form = new FormData();
+    form.append("name", n);
+    form.append("author", author);
+    form.append("description", description);
+    form.append("version", version);
+
+    try {
+      const uploaded = await uploadVideoToStorage(file, setProgress);
+      if (uploaded.kind === "blob") {
+        const res = await fetch("/api/projects/video", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: n,
+            author,
+            description,
+            version,
+            videoUrl: uploaded.url,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Upload failed");
+        setPhase("");
+        setUploading(false);
+        router.push(`/editor/${data.id}`);
+        return;
+      }
+      form.append("video", uploaded.file);
+    } catch (e) {
+      setUploading(false);
+      setModalError(e instanceof Error ? e.message : "Upload failed");
+      return;
+    }
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/projects/video");
@@ -169,8 +202,6 @@ export default function Dashboard() {
       setUploading(false);
       setModalError("Upload failed - is the server running?");
     };
-    setPhase("Uploading and generating preview.gif (this can take a moment)…");
-    setUploading(true);
     xhr.send(form);
   }
 

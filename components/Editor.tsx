@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { uploadVideoToStorage } from "@/lib/client-upload";
 
 type ThemeMeta = {
   id: string;
@@ -402,37 +403,66 @@ export default function Editor({ id }: { id: string }) {
     router.push("/");
   }
 
-  function replaceVideo(file: File) {
+  async function replaceVideo(file: File) {
     if (!file.type.startsWith("video/")) {
       toast("Only video files are allowed", "error");
       return;
     }
-    const form = new FormData();
-    form.append("video", file);
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", `/api/projects/${id}/video`);
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) setVideoProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () => {
-      setVideoBusy(false);
-      const data = JSON.parse(xhr.responseText || "{}") as ThemeMeta;
-      if (xhr.status >= 200 && xhr.status < 300) {
-        setMeta(data);
-        setPreviewKey((k) => k + 1);
-        setDirty(false);
-        toast("Video replaced, preview.gif regenerated");
-      } else {
-        toast((data as unknown as { error?: string }).error || "Replace failed", "error");
-      }
-    };
-    xhr.onerror = () => {
-      setVideoBusy(false);
-      toast("Replace failed", "error");
-    };
     setVideoBusy(true);
     setVideoProgress(0);
-    xhr.send(form);
+    try {
+      const uploaded = await uploadVideoToStorage(
+        file,
+        setVideoProgress,
+        JSON.stringify({ projectId: id, replace: true })
+      );
+      if (uploaded.kind === "blob") {
+        const res = await fetch(`/api/projects/${id}/video`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoUrl: uploaded.url }),
+        });
+        const data = (await res.json()) as ThemeMeta & { error?: string };
+        if (res.ok) {
+          setMeta(data);
+          setPreviewKey((k) => k + 1);
+          setDirty(false);
+          toast("Video replaced, preview.gif regenerated");
+        } else {
+          toast(data.error || "Replace failed", "error");
+        }
+        setVideoBusy(false);
+        return;
+      }
+
+      const form = new FormData();
+      form.append("video", uploaded.file);
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `/api/projects/${id}/video`);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) setVideoProgress(Math.round((e.loaded / e.total) * 100));
+      };
+      xhr.onload = () => {
+        setVideoBusy(false);
+        const data = JSON.parse(xhr.responseText || "{}") as ThemeMeta & { error?: string };
+        if (xhr.status >= 200 && xhr.status < 300) {
+          setMeta(data);
+          setPreviewKey((k) => k + 1);
+          setDirty(false);
+          toast("Video replaced, preview.gif regenerated");
+        } else {
+          toast(data.error || "Replace failed", "error");
+        }
+      };
+      xhr.onerror = () => {
+        setVideoBusy(false);
+        toast("Replace failed", "error");
+      };
+      xhr.send(form);
+    } catch (e) {
+      setVideoBusy(false);
+      toast(e instanceof Error ? e.message : "Replace failed", "error");
+    }
   }
 
   /* ------------------------------- keyboard ------------------------------ */
