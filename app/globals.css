@@ -1024,3 +1024,128 @@ code,
     display: none;
   }
 }
+/* ------------------------------ login ------------------------------ */
+
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  background: linear-gradient(180deg, rgba(23, 27, 37, 0.9), rgba(18, 21, 29, 0.94));
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 34px 30px 30px;
+  display: flex;
+  flex-direction: column;
+}
+
+.login-card .brand {
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.login-card .brand .logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  font-size: 18px;
+}
+
+.login-card .brand .title {
+  font-size: 16px;
+}
+
+.login-title {
+  text-align: center;
+  font-size: 21px;
+  margin-bottom: 6px;
+}
+
+.login-sub {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 0 22px;
+}
+
+.login-providers {
+  display: grid;
+  gap: 10px;
+}
+
+.btn-block {
+  width: 100%;
+  justify-content: center;
+  padding: 11px 14px;
+}
+
+.login-icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.login-fields {
+  margin-top: 14px;
+}
+
+.login-card .form-actions {
+  justify-content: stretch;
+  margin-top: 14px;
+}
+
+.login-card .form-actions .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.login-error {
+  color: var(--danger);
+  background: rgba(244, 63, 94, 0.1);
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  font-size: 12.5px;
+  margin-top: 14px;
+}
+
+.login-note {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 18px;
+}
+
+.login-note.warn {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+}
