@@ -933,6 +933,70 @@ code,
   height: 100%;
 }
 
+/* GIF capture rig — an offscreen live preview at laptop (16:10) resolution */
+.capture-rig {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  width: 396px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.capture-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.capture-title {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--fg);
+}
+
+.capture-progress {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cap-scaler {
+  width: 374px;
+  height: 234px;
+  overflow: hidden;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  background: #000;
+}
+
+.cap-frame {
+  width: 1280px;
+  height: 800px;
+  border: 0;
+  transform: scale(0.29219);
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.capture-hint {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
+.capture-hint code {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
 .resizer {
   width: 5px;
   cursor: col-resize;

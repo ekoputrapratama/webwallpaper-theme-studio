@@ -302,6 +302,24 @@ export async function writeTextFiles(
   }
 }
 
+export async function writeProjectBlob(
+  id: string,
+  uid: string | null,
+  name: string,
+  data: Buffer
+): Promise<void> {
+  const rel = safeRel(name);
+  if (isRemote()) {
+    const d = await readDoc(id);
+    if (!d || (uid && String(d.uid || '') !== uid)) throw new Error('Project not found');
+    await storagePut(blobKey(id, rel), data);
+    return;
+  }
+  const dir = projectDir(id);
+  if (!fs.existsSync(dir)) throw new Error('Project not found');
+  fs.writeFileSync(path.join(dir, rel), data);
+}
+
 export async function writeTextFile(
   id: string,
   uid: string | null,

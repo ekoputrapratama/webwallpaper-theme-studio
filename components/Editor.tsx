@@ -70,6 +70,96 @@ function buildPreviewHtml(files: Record<string, string>, id: string): string {
   return html;
 }
 
+/* ----------------------------- gif capture ----------------------------- */
+
+const CAPTURE_WIDTH = 1280;
+const CAPTURE_HEIGHT = 800;
+const CAPTURE_FPS = 8;
+const CAPTURE_SECONDS = 1.5;
+const GIF_WIDTH = 320;
+
+// Injected into the <head> of a dedicated capture iframe so it wraps
+// requestAnimationFrame BEFORE the theme registers its own callbacks.
+// The wrapper runs the theme's frame first (same task, before composite),
+// which lets us read WebGL drawing buffers that lack preserveDrawingBuffer.
+const CAPTURE_BOOTSTRAP = `
+(function () {
+  if (window.__wwCapInstalled) return;
+  window.__wwCapInstalled = true;
+  var fps = __WW_FPS__, seconds = __WW_SECONDS__, frames = [], startedAt = 0, lastAt = 0, active = false, sampler = null;
+  var origRaf = window.requestAnimationFrame;
+  function needs() { return Math.max(1, Math.ceil(seconds * fps)); }
+  function sample() {
+    if (Date.now() - lastAt < 1000 / fps) return;
+    lastAt = Date.now();
+    var c = document.querySelector('canvas');
+    var has = false;
+    if (c) {
+      try { frames.push(c.toDataURL('image/png')); has = true; } catch (e) {}
+    }
+    try { parent.postMessage({ __ww: 'frame', got: frames.length, needs: needs(), hasCanvas: has }, '*'); } catch (e) {}
+  }
+  window.requestAnimationFrame = function (cb) {
+    return origRaf.call(window, function (t) {
+      try { cb(t); } catch (e) {}
+      if (!active) return;
+      if (startedAt === 0) startedAt = t;
+      sample();
+      if (t - startedAt >= seconds * 1000) finish();
+    });
+  };
+  function finish() {
+    active = false;
+    if (sampler) { clearInterval(sampler); sampler = null; }
+    try { parent.postMessage({ __ww: 'done', frames: frames.slice() }, '*'); } catch (e) {}
+  }
+  window.addEventListener('message', function (ev) {
+    if (!ev.data || ev.data.__ww !== 'start') return;
+    frames = []; startedAt = 0; lastAt = 0; active = true;
+    if (sampler) { clearInterval(sampler); sampler = null; }
+    sampler = setInterval(function () { if (active) sample(); }, 1000 / fps);
+    window.setTimeout(function () { if (active) finish(); }, seconds * 1000 + 500);
+  });
+})();
+`;
+
+function buildCapturePreviewHtml(files: Record<string, string>, id: string): string {
+  let html = buildPreviewHtml(files, id);
+  if (!/<head\b/i.test(html)) {
+    html = html.replace(/<html([^>]*)>/i, "<html$1>\n<head></head>");
+  }
+  const bootstrap = CAPTURE_BOOTSTRAP.replace(/__WW_FPS__/g, String(CAPTURE_FPS)).replace(
+    /__WW_SECONDS__/g,
+    String(CAPTURE_SECONDS)
+  );
+  return html.replace(/<head([^>]*)>/i, "<head$1>\n<script>" + bootstrap + "</" + "script>");
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to decode frame"));
+    img.src = dataUrl;
+  });
+}
+
+async function downscaleFrame(dataUrl: string, width: number): Promise<string> {
+  const img = await loadImage(dataUrl);
+  const height = Math.max(1, Math.round((img.height / img.width) * width) || Math.round((width * 5) / 8));
+  const cv = document.createElement("canvas");
+  cv.width = width;
+  cv.height = height;
+  const ctx = cv.getContext("2d");
+  if (!ctx) return dataUrl;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, width, height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, 0, 0, width, height);
+  return cv.toDataURL("image/png");
+}
+
 type CodeEditorProps = {
   value: string;
   onChange: (value: string) => void;
@@ -115,6 +205,15 @@ export default function Editor({ id }: { id: string }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [videoBusy, setVideoBusy] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
+  const [capturing, setCapturing] = useState(false);
+  const [capturePhase, setCapturePhase] = useState<"recording" | "saving" | null>(null);
+  const [captureHtml, setCaptureHtml] = useState<string | null>(null);
+  const [captureProgress, setCaptureProgress] = useState(0);
+  const [captureNeeds, setCaptureNeeds] = useState(0);
+  const captureIframeRef = useRef<HTMLIFrameElement>(null);
+  const captureActiveRef = useRef(false);
+  const captureStartSentRef = useRef(false);
+  const captureTimeoutRef = useRef<number>(0);
   const [publishOpen, setPublishOpen] = useState(false);
   const [publishBusy, setPublishBusy] = useState(false);
   const [publishErr, setPublishErr] = useState("");
@@ -443,6 +542,111 @@ export default function Editor({ id }: { id: string }) {
     }
   }
 
+  /* ---------------------------- gif capture ---------------------------- */
+
+  function finishCapture() {
+    window.clearTimeout(captureTimeoutRef.current);
+    captureActiveRef.current = false;
+    captureStartSentRef.current = false;
+    setCaptureHtml(null);
+    setCapturePhase(null);
+    setCapturing(false);
+    setCaptureProgress(0);
+    setCaptureNeeds(0);
+  }
+
+  function abortCapture() {
+    toast("Capture cancelled");
+    finishCapture();
+  }
+
+  function kickCapture() {
+    if (captureStartSentRef.current) return;
+    captureStartSentRef.current = true;
+    window.clearTimeout(captureTimeoutRef.current);
+    captureTimeoutRef.current = window.setTimeout(() => {
+      const win = captureIframeRef.current?.contentWindow;
+      if (win && captureActiveRef.current) win.postMessage({ __ww: "start" }, "*");
+    }, 1000);
+  }
+
+  async function startCapture() {
+    if (!meta || capturing) return;
+    const html = buildCapturePreviewHtml(filesRef.current, id);
+    setCaptureState(html);
+    window.setTimeout(() => {
+      if (captureActiveRef.current) {
+        toast("Capture timed out — the theme may not be animating.", "error");
+        finishCapture();
+      }
+    }, 15000);
+  }
+
+  function setCaptureState(html: string) {
+    captureActiveRef.current = true;
+    setCaptureHtml(html);
+    setCapturing(true);
+    setCapturePhase("recording");
+    setCaptureProgress(0);
+    setCaptureNeeds(0);
+    // fallback in case the iframe's onLoad already fired or never fires
+    kickCapture();
+  }
+
+  async function saveCapture(frames: string[]) {
+    const good = frames.filter((f) => f && f.startsWith("data:image/png"));
+    if (good.length < 2) {
+      toast(
+        "No frames captured — the theme may not render to a canvas, or the canvas cannot be read.",
+        "error"
+      );
+      finishCapture();
+      return;
+    }
+    setCapturePhase("saving");
+    try {
+      const small: string[] = [];
+      for (const f of good) {
+        small.push(await downscaleFrame(f, GIF_WIDTH));
+      }
+      const res = await fetch(`/api/projects/${id}/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ frames: small, fps: CAPTURE_FPS }),
+        signal: AbortSignal.timeout(120000),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error || `Capture failed (HTTP ${res.status})`);
+      setMeta((m) => (m ? { ...m, thumbnail: "preview.gif" } : m));
+      setPreviewKey((k) => k + 1);
+      toast("Preview GIF saved to this project");
+      finishCapture();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Capture failed", "error");
+      finishCapture();
+    }
+  }
+
+  useEffect(() => {
+    const h = (ev: MessageEvent) => {
+      const d = ev.data as
+        | { __ww?: string; frames?: string[]; got?: number; needs?: number }
+        | null;
+      if (!d || d.__ww === undefined || !captureActiveRef.current) return;
+      if (d.__ww === "frame") {
+        if (typeof d.got === "number") setCaptureProgress(d.got);
+        if (typeof d.needs === "number") setCaptureNeeds(d.needs);
+        return;
+      }
+      if (d.__ww === "done") {
+        void saveCapture(Array.isArray(d.frames) ? d.frames : []);
+      }
+    };
+    window.addEventListener("message", h);
+    return () => window.removeEventListener("message", h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /* ------------------------------- keyboard ------------------------------ */
 
   useEffect(() => {
@@ -530,11 +734,9 @@ export default function Editor({ id }: { id: string }) {
         <button className="btn" onClick={exportZip} title="Download as .zip for WebWallpaper">
           ⬇ .zip
         </button>
-        {isVideo && (
-          <button className="btn btn-primary" onClick={openPublish} title="Publish this theme to webkit-wallpaper.web.app">
-            Publish ↗
-          </button>
-        )}
+        <button className="btn btn-primary" onClick={openPublish} title="Publish this theme to webkit-wallpaper.web.app">
+          Publish ↗
+        </button>
         <button className="btn btn-primary" onClick={save} disabled={saving || isVideo && false}>
           {saving && <span className="spin" />}
           {dirty ? "Save" : "Saved"}
@@ -702,6 +904,16 @@ export default function Editor({ id }: { id: string }) {
           <div className="preview-toolbar">
             <span>Live preview</span>
             <div className="spacer" />
+            {!isVideo && (
+              <button
+                className="btn btn-sm"
+                disabled={capturing}
+                onClick={startCapture}
+                title={`Records the live preview at ${CAPTURE_WIDTH}×${CAPTURE_HEIGHT} (16:10 laptop frame) as a preview.gif thumbnail`}
+              >
+                {capturing ? (capturePhase === "saving" ? "Saving…" : "Recording…") : "Capture GIF"}
+              </button>
+            )}
             <span style={{ fontSize: 11.5 }}>
               {isVideo ? "served from this project's folder" : "updates as you type"}
             </span>
@@ -713,6 +925,39 @@ export default function Editor({ id }: { id: string }) {
           )}
         </section>
       </div>
+
+      {captureHtml && (
+        <div className="capture-rig">
+          <div className="capture-head">
+            <span className="capture-title">
+              Recording live preview — {CAPTURE_WIDTH}×{CAPTURE_HEIGHT} (16:10 laptop frame)
+            </span>
+            {capturePhase === "saving" ? (
+              <span className="capture-progress">Assembling GIF…</span>
+            ) : (
+              <span className="capture-progress">
+                {captureNeeds ? `${captureProgress}/${captureNeeds} frames` : "warming up…"}
+              </span>
+            )}
+            <button className="btn btn-sm" onClick={abortCapture}>
+              Cancel
+            </button>
+          </div>
+          <div className="cap-scaler">
+            <iframe
+              className="cap-frame"
+              ref={captureIframeRef}
+              srcDoc={captureHtml}
+              title="Capture preview"
+              onLoad={kickCapture}
+            />
+          </div>
+          <div className="capture-hint">
+            Tip: themes that animate via <code>requestAnimationFrame</code> capture best. The GIF is saved as{" "}
+            <code>preview.gif</code>.
+          </div>
+        </div>
+      )}
 
       <div className="toasts">
         {toasts.map((t, i) => (

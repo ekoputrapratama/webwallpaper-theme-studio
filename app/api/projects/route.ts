@@ -1,12 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  DEFAULT_HTML_FILES,
-  defaultThumbSvg,
-  slugify,
-  themeContent,
-  type ThemeMeta,
-} from '@/lib/themes';
+import { DEFAULT_HTML_FILES, slugify, themeContent, type ThemeMeta } from '@/lib/themes';
 import { createProjectFromDir, listProjects, scratchProjectDir, uniqueProjectId } from '@/lib/persist';
 import { getRequestUser } from '@/lib/auth';
 
@@ -62,7 +56,7 @@ export async function POST(request: Request) {
       description: String(body.description || '').trim(),
       author: String(body.author || '').trim(),
       version: String(body.version || '1.0').trim(),
-      thumbnail: 'thumbnail.svg',
+      thumbnail: '',
       entry: 'index.html',
       video: null,
       updatedAt: new Date().toISOString(),
@@ -71,7 +65,6 @@ export async function POST(request: Request) {
     fs.writeFileSync(path.join(dir, 'index.html'), DEFAULT_HTML_FILES['index.html']);
     fs.writeFileSync(path.join(dir, 'style.css'), DEFAULT_HTML_FILES['style.css']);
     fs.writeFileSync(path.join(dir, 'script.js'), DEFAULT_HTML_FILES['script.js']);
-    fs.writeFileSync(path.join(dir, 'thumbnail.svg'), defaultThumbSvg(meta.name));
     fs.writeFileSync(path.join(dir, `${id}.theme`), themeContent(meta));
     fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify(meta, null, 2) + '\n');
 

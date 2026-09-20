@@ -133,27 +133,6 @@ export function writeThemeFile(id: string, meta: ThemeMeta): string {
 
 /* ------------------------------ templates ------------------------------ */
 
-export function defaultThumbSvg(name: string): string {
-  const safe = escHtml(name || 'Untitled Theme');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#8b5cf6"/>
-      <stop offset="0.5" stop-color="#6366f1"/>
-      <stop offset="1" stop-color="#22d3ee"/>
-    </linearGradient>
-  </defs>
-  <rect width="320" height="180" fill="url(#g)"/>
-  <circle cx="248" cy="56" r="42" fill="#ffffff22"/>
-  <circle cx="84" cy="146" r="36" fill="#ffffff22"/>
-  <rect x="40" y="96" width="16" height="3" rx="1.5" fill="#ffffff66"/>
-  <rect x="64" y="104" width="8" height="3" rx="1.5" fill="#ffffff44"/>
-  <text x="160" y="80" text-anchor="middle" font-family="sans-serif" font-size="20" font-weight="700" fill="#ffffff">${safe}</text>
-  <text x="160" y="104" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#ffffffcc">WebWallpaper Theme</text>
-</svg>
-`;
-}
-
 export const DEFAULT_HTML_FILES: Record<string, string> = {
   'index.html': `<!DOCTYPE html>
 <html lang="en">
