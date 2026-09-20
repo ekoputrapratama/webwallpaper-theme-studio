@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { uploadVideoToStorage } from "@/lib/client-upload";
+import { uploadVideoToStorage, type VideoUpload } from "@/lib/client-upload";
 
 type ThemeMeta = {
   id: string;
@@ -33,6 +33,15 @@ type Toast = { msg: string; kind: "ok" | "error" };
 
 const CM_BASE = "https://unpkg.com/codemirror@5.65.16";
 const PREFERRED = ["index.html", "style.css", "script.js"];
+
+function safeParse(body: string): unknown {
+  if (!body) return null;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
 
 function themeContent(meta: ThemeMeta): string {
   const lines = ["[Theme]"];
@@ -410,26 +419,26 @@ export default function Editor({ id }: { id: string }) {
     }
     setVideoBusy(true);
     setVideoProgress(0);
+    let uploaded: VideoUpload | null = null;
     try {
-      const uploaded = await uploadVideoToStorage(
-        file,
-        setVideoProgress,
-        JSON.stringify({ projectId: id, replace: true })
-      );
+      uploaded = await uploadVideoToStorage(file, setVideoProgress);
       if (uploaded.kind === "blob") {
         const res = await fetch(`/api/projects/${id}/video`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ videoUrl: uploaded.url }),
+          signal: AbortSignal.timeout(15 * 60 * 1000),
         });
-        const data = (await res.json()) as ThemeMeta & { error?: string };
+        const data = safeParse(await res.text()) as ThemeMeta & { error?: string };
         if (res.ok) {
           setMeta(data);
           setPreviewKey((k) => k + 1);
           setDirty(false);
           toast("Video replaced, preview.gif regenerated");
         } else {
-          toast(data.error || "Replace failed", "error");
+          toast(res.status === 413
+            ? "The uploaded video is too large for the server (limit ~4.5 MB)."
+            : data?.error || `Replace failed (HTTP ${res.status})`, "error");
         }
         setVideoBusy(false);
         return;
@@ -439,29 +448,38 @@ export default function Editor({ id }: { id: string }) {
       form.append("video", uploaded.file);
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `/api/projects/${id}/video`);
+      xhr.timeout = 15 * 60 * 1000;
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) setVideoProgress(Math.round((e.loaded / e.total) * 100));
       };
       xhr.onload = () => {
         setVideoBusy(false);
-        const data = JSON.parse(xhr.responseText || "{}") as ThemeMeta & { error?: string };
-        if (xhr.status >= 200 && xhr.status < 300) {
+        const data = safeParse(xhr.responseText) as ThemeMeta & { error?: string };
+        if (xhr.status >= 200 && xhr.status < 300 && data?.id) {
           setMeta(data);
           setPreviewKey((k) => k + 1);
           setDirty(false);
           toast("Video replaced, preview.gif regenerated");
+        } else if (xhr.status === 413 && uploaded?.kind === "multipart") {
+          toast(`This video (${(file.size / (1024 * 1024)).toFixed(1)} MB) is too large for a direct upload — the server accepts at most ~4.5 MB.${uploaded.reason ? ` ${uploaded.reason}` : ""}`, "error");
         } else {
-          toast(data.error || "Replace failed", "error");
+          toast(data?.error || `Replace failed (HTTP ${xhr.status})`, "error");
         }
       };
       xhr.onerror = () => {
         setVideoBusy(false);
         toast("Replace failed", "error");
       };
+      xhr.ontimeout = () => {
+        setVideoBusy(false);
+        toast("The server is taking too long to process the video.", "error");
+      };
       xhr.send(form);
     } catch (e) {
       setVideoBusy(false);
-      toast(e instanceof Error ? e.message : "Replace failed", "error");
+      toast(e instanceof DOMException && e.name === "TimeoutError"
+        ? "The server is taking too long to process the video."
+        : e instanceof Error ? e.message : "Replace failed", "error");
     }
   }
 

@@ -3,7 +3,7 @@ import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { buildVideoTheme, slugify, tmpVideoPath } from '@/lib/themes';
-import { deleteBlob, downloadBlobToFile, isBlobConfigured, tmpFileNameFromBlob } from '@/lib/blob';
+import { downloadUrlToFile, isFirebaseStorageConfigured, tmpFileNameFromUrl } from '@/lib/storage';
 import { createProjectFromDir, remoteEnabled, scratchProjectDir, uniqueProjectId } from '@/lib/persist';
 import { getRequestUser } from '@/lib/auth';
 
@@ -41,9 +41,12 @@ export async function POST(request: Request) {
   let tmpPath: string | null = null;
   let blobUrl: string | null = null;
   let dir: string | null = null;
+  const started = Date.now();
+  const step = (label: string) => console.log(`[projects/video] ${label} (+${Date.now() - started}ms)`);
   try {
     const user = await getRequestUser();
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    step(`authed user=${user.uid}`);
 
     const contentType = request.headers.get('content-type') || '';
     const isJson = contentType.includes('application/json');
@@ -51,7 +54,7 @@ export async function POST(request: Request) {
     let meta: VideoForm;
     let fileName = 'video.mp4';
 
-    if (isJson && isBlobConfigured()) {
+    if (isJson && isFirebaseStorageConfigured()) {
       const body = (await request.json().catch(() => ({}))) as {
         videoUrl?: string;
         name?: string;
@@ -63,7 +66,7 @@ export async function POST(request: Request) {
         return Response.json({ error: 'Please upload a video file' }, { status: 400 });
       }
       blobUrl = body.videoUrl;
-      fileName = tmpFileNameFromBlob(blobUrl);
+      fileName = tmpFileNameFromUrl(blobUrl);
       meta = {
         name: String(body.name || '').trim(),
         description: String(body.description || '').trim(),
@@ -73,7 +76,8 @@ export async function POST(request: Request) {
       if (!meta.name) return Response.json({ error: 'Project name is required' }, { status: 400 });
 
       tmpPath = tmpVideoPath(fileName);
-      await downloadBlobToFile(blobUrl, tmpPath);
+      await downloadUrlToFile(blobUrl, tmpPath);
+      step(`downloaded ${fileName}`);
     } else {
       const { meta: m, file } = await readForm(request);
       if (!m.name) return Response.json({ error: 'Project name is required' }, { status: 400 });
@@ -97,8 +101,10 @@ export async function POST(request: Request) {
       author: meta.author,
       version: meta.version,
     });
+    step('ffmpeg + preview.gif done');
 
     await createProjectFromDir(id, user.uid, dir, created);
+    step('persisted');
 
     return Response.json(created, { status: 201 });
   } catch (err) {
@@ -107,6 +113,5 @@ export async function POST(request: Request) {
   } finally {
     if (tmpPath) fs.rmSync(tmpPath, { force: true });
     if (dir && remoteEnabled()) fs.rmSync(dir, { recursive: true, force: true });
-    if (blobUrl) await deleteBlob(blobUrl);
   }
 }

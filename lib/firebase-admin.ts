@@ -1,6 +1,7 @@
 import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth, type Auth } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { getStorage, type Storage } from 'firebase-admin/storage';
 
 export const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || 'fb_session';
 
@@ -64,6 +65,14 @@ export function getDb(): Firestore {
   return FIRESTORE_DATABASE_ID
     ? getFirestore(getAdminApp(), FIRESTORE_DATABASE_ID)
     : getFirestore(getAdminApp());
+}
+
+export function getAdminStorage(): Storage {
+  return getStorage(getAdminApp());
+}
+
+export function adminStorageBucketName(): string | undefined {
+  return process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim() || undefined;
 }
 
 export async function createSessionCookie(idToken: string): Promise<string> {

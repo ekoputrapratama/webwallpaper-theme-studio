@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { uploadVideoToStorage } from "@/lib/client-upload";
+import { uploadVideoToStorage, type VideoUpload } from "@/lib/client-upload";
 import { signOutClient } from "@/lib/firebase";
 
 type Project = {
@@ -29,6 +29,17 @@ function triggerDownload(url: string) {
   a.click();
   a.remove();
 }
+
+function safeParse(body: string): unknown {
+  if (!body) return null;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
+
+const REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
 
 function fmtDate(iso: string) {
   try {
@@ -173,9 +184,11 @@ export default function Dashboard() {
     form.append("description", description);
     form.append("version", version);
 
+    let uploaded: VideoUpload | null = null;
     try {
-      const uploaded = await uploadVideoToStorage(file, setProgress);
+      uploaded = await uploadVideoToStorage(file, setProgress);
       if (uploaded.kind === "blob") {
+        setPhase("Generating preview.gif and saving theme…");
         const res = await fetch("/api/projects/video", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -186,40 +199,65 @@ export default function Dashboard() {
             version,
             videoUrl: uploaded.url,
           }),
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Upload failed");
+        const data = safeParse(await res.text());
+        if (!res.ok) {
+          throw new Error(res.status === 413
+            ? `The uploaded video is too large for the server (limit \u22484.5 MB).`
+            : (data as { error?: string } | null)?.error || `Upload failed (HTTP ${res.status})`);
+        }
         setPhase("");
         setUploading(false);
-        router.push(`/editor/${data.id}`);
+        router.push(`/editor/${(data as { id: string }).id}`);
         return;
       }
       form.append("video", uploaded.file);
     } catch (e) {
       setUploading(false);
-      setModalError(e instanceof Error ? e.message : "Upload failed");
+      setPhase("");
+      setModalError(
+        e instanceof DOMException && e.name === "TimeoutError"
+          ? "The server is taking too long to process the video. Try a shorter or smaller video."
+          : e instanceof Error
+            ? e.message
+            : "Upload failed"
+      );
       return;
     }
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/projects/video");
+    xhr.timeout = REQUEST_TIMEOUT_MS;
+    setPhase("Uploading video directly to server…");
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
     };
     xhr.onload = () => {
-      const data = JSON.parse(xhr.responseText || "{}");
-      if (xhr.status >= 200 && xhr.status < 300) {
-        setPhase("");
-        setUploading(false);
-        router.push(`/editor/${data.id}`);
+      setUploading(false);
+      setPhase("");
+      const data = safeParse(xhr.responseText);
+      const id = (data as { id?: string } | null)?.id;
+      if (xhr.status >= 200 && xhr.status < 300 && id) {
+        router.push(`/editor/${id}`);
+      } else if (xhr.status === 413 && uploaded?.kind === "multipart") {
+        setModalError(
+          `This video (${(file.size / (1024 * 1024)).toFixed(1)} MB) is too large for a direct upload — the server accepts at most ~4.5 MB.` +
+            (uploaded.reason ? ` ${uploaded.reason}` : "")
+        );
       } else {
-        setUploading(false);
-        setModalError(data.error || "Upload failed");
+        setModalError((data as { error?: string } | null)?.error || `Upload failed (HTTP ${xhr.status})`);
       }
     };
     xhr.onerror = () => {
       setUploading(false);
+      setPhase("");
       setModalError("Upload failed - is the server running?");
+    };
+    xhr.ontimeout = () => {
+      setUploading(false);
+      setPhase("");
+      setModalError("The server is taking too long to process the video. Try a shorter or smaller video.");
     };
     xhr.send(form);
   }
