@@ -383,6 +383,17 @@ export async function readProjectFile(
   return { kind: 'stream', stream: Readable.toWeb(createReadStream(full)) as ReadableStream, size: st.size };
 }
 
+export async function readProjectBlob(id: string, name: string): Promise<Buffer | null> {
+  if (isRemote()) {
+    const got = await storageRead(blobKey(id, name));
+    if (!got) return null;
+    return streamToBuffer(got.stream);
+  }
+  const full = path.join(projectDir(id), safeRel(name));
+  if (!fs.existsSync(full)) return null;
+  return fs.readFileSync(full);
+}
+
 export async function buildProjectZip(id: string, uid: string | null): Promise<Buffer> {
   const zip = new JSZip();
 

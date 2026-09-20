@@ -12,6 +12,7 @@ const MIME_BY_EXT: Record<string, string> = {
   '.ogv': 'video/ogg',
   '.gif': 'image/gif',
   '.png': 'image/png',
+  '.zip': 'application/zip',
 };
 
 export function isFirebaseStorageConfigured(): boolean {

@@ -160,6 +160,13 @@ export default function Editor({ id }: { id: string }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [videoBusy, setVideoBusy] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishBusy, setPublishBusy] = useState(false);
+  const [publishErr, setPublishErr] = useState("");
+  const [publishDone, setPublishDone] = useState<Record<string, string> | null>(null);
+  const [pubTags, setPubTags] = useState("");
+  const [pubDonationUrl, setPubDonationUrl] = useState("");
+  const [pubDonationLabel, setPubDonationLabel] = useState("");
 
   const cmRef = useRef<CodeMirrorHandle | null>(null);
   const cmMountRef = useRef<HTMLDivElement | null>(null);
@@ -406,6 +413,42 @@ export default function Editor({ id }: { id: string }) {
     a.remove();
   }
 
+  function openPublish() {
+    setPublishErr("");
+    setPublishDone(null);
+    setPublishOpen(true);
+  }
+
+  async function publishTheme() {
+    if (!meta || publishBusy) return;
+    setPublishBusy(true);
+    setPublishErr("");
+    try {
+      const res = await fetch("/api/themes/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          tags: pubTags.split(",").map((t) => t.trim()).filter(Boolean),
+          donation_url: pubDonationUrl.trim(),
+          donation_label: pubDonationLabel.trim(),
+        }),
+        signal: AbortSignal.timeout(15 * 60 * 1000),
+      });
+      const data = (await res.json().catch(() => ({}))) as Record<string, string>;
+      if (res.ok && data.id) {
+        setPublishDone(data);
+        toast("Published to WebKit Wallpaper");
+      } else {
+        setPublishErr(data.error || `Publish failed (HTTP ${res.status})`);
+      }
+    } catch (e) {
+      setPublishErr(e instanceof Error ? e.message : "Publish failed");
+    } finally {
+      setPublishBusy(false);
+    }
+  }
+
   async function removeProject() {
     if (!window.confirm(`Delete this theme permanently?`)) return;
     await fetch(`/api/projects/${id}`, { method: "DELETE" });
@@ -559,7 +602,7 @@ export default function Editor({ id }: { id: string }) {
   const thumbSrc = meta.thumbnail ? `/p/${id}/${meta.thumbnail}` : "";
 
   return (
-    <>
+    <div className="editor-shell">
       <header className="editor-head">
         <button className="btn btn-ghost" onClick={() => router.push("/")} title="Back to studio">
           ←
@@ -586,6 +629,11 @@ export default function Editor({ id }: { id: string }) {
         <button className="btn" onClick={exportZip} title="Download as .zip for WebWallpaper">
           ⬇ .zip
         </button>
+        {isVideo && (
+          <button className="btn btn-primary" onClick={openPublish} title="Publish this theme to webkit-wallpaper.web.app">
+            Publish ↗
+          </button>
+        )}
         <button className="btn btn-primary" onClick={save} disabled={saving || isVideo && false}>
           {saving && <span className="spin" />}
           {dirty ? "Save" : "Saved"}
@@ -777,6 +825,91 @@ export default function Editor({ id }: { id: string }) {
           </div>
         ))}
       </div>
-    </>
+
+      {publishOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100,
+          }}
+          onClick={() => !publishBusy && setPublishOpen(false)}
+        >
+          <div
+            style={{
+              background: "var(--bg-2)",
+              border: "1px solid var(--border-2)",
+              borderRadius: 12,
+              padding: 20,
+              width: 420,
+              maxWidth: "92vw",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ margin: "0 0 12px" }}>
+              {publishDone ? "Published to WebKit Wallpaper" : "Publish to WebKit Wallpaper"}
+            </h3>
+            {publishDone ? (
+              <div>
+                <p style={{ margin: "0 0 12px", color: "var(--muted)" }}>
+                  Your theme is live on the gallery at <a href={publishDone.siteUrl} target="_blank" rel="noreferrer">webkit-wallpaper.web.app ↗</a>
+                </p>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button className="btn btn-primary" onClick={() => setPublishOpen(false)}>
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="field">
+                  <label>Tags (comma separated)</label>
+                  <input
+                    value={pubTags}
+                    onChange={(e) => setPubTags(e.target.value)}
+                    placeholder="webgl, animated"
+                  />
+                </div>
+                <div className="field">
+                  <label>Donation URL</label>
+                  <input
+                    value={pubDonationUrl}
+                    onChange={(e) => setPubDonationUrl(e.target.value)}
+                    placeholder="https://ko-fi.com/you"
+                  />
+                </div>
+                <div className="field">
+                  <label>Donation label</label>
+                  <input
+                    value={pubDonationLabel}
+                    onChange={(e) => setPubDonationLabel(e.target.value)}
+                    placeholder="Support me"
+                  />
+                </div>
+                <p style={{ fontSize: 11.5, color: "var(--muted)", margin: "0 0 12px" }}>
+                  Publishes <code>wallpaper.zip</code> + <code>preview.gif</code> using your current name,
+                  description and author.
+                </p>
+                {publishErr && (
+                  <p style={{ color: "#f87171", fontSize: 13, margin: "0 0 10px" }}>{publishErr}</p>
+                )}
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button className="btn" onClick={() => setPublishOpen(false)} disabled={publishBusy}>
+                    Cancel
+                  </button>
+                  <button className="btn btn-primary" onClick={publishTheme} disabled={publishBusy}>
+                    {publishBusy && <span className="spin" />} Publish
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
