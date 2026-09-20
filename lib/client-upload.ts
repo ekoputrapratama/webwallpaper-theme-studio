@@ -37,13 +37,23 @@ export async function uploadVideoToStorage(
 
   if (!auth.currentUser) {
     try {
+      await auth.authStateReady();
+    } catch {
+      // ignore — authStateReady has no meaningful failure; currentUser is authoritative
+    }
+  }
+
+  if (!auth.currentUser) {
+    try {
       await signInWithPopup(auth, new GoogleAuthProvider());
     } catch (err) {
       const code = errCode(err);
       const reason =
         code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request'
           ? 'Sign-in was cancelled, so the video cannot be uploaded to cloud storage.'
-          : `Firebase sign-in failed (${code}). Check that the Auth providers are enabled and that the auth domain is set.`;
+          : code === 'auth/unauthorized-domain'
+            ? `Firebase sign-in failed (auth/unauthorized-domain): this page (${window.location.origin}) is not in Firebase Auth → Settings → Authorized domains. Add it there, then retry.`
+            : `Firebase sign-in failed (${code}). Check that the Auth providers are enabled and that the auth domain is set.`;
       return { kind: 'multipart', file, reason };
     }
   }
