@@ -111,6 +111,7 @@ export default function Editor({ id }: { id: string }) {
   const [files, setFiles] = useState<Record<string, string>>({});
   const [activeName, setActiveName] = useState("index.html");
   const [dirty, setDirty] = useState(false);
+  const [cmFailed, setCmFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("Loading…");
   const [previewHtml, setPreviewHtml] = useState("");
@@ -217,32 +218,44 @@ export default function Editor({ id }: { id: string }) {
     schedulePreview();
   }, [schedulePreview]);
 
+  function onFallbackChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    filesRef.current[activeRef.current] = e.target.value;
+    setFiles({ ...filesRef.current });
+    setDirty(true);
+    schedulePreview();
+  }
+
   useEffect(() => {
     let cancelled = false;
     let cm: CMHandle | null = null;
     (async () => {
-      const mod = (await import("codemirror")) as unknown as { default?: CMCtor };
-      const Ctor = mod.default ?? (mod as unknown as CMCtor);
-      await import("codemirror/addon/edit/closebrackets");
-      await import("codemirror/mode/xml/xml");
-      await import("codemirror/mode/javascript/javascript");
-      await import("codemirror/mode/css/css");
-      await import("codemirror/mode/htmlmixed/htmlmixed");
-      if (cancelled) return;
-      const el = editorMountRef.current;
-      if (!el) return;
-      cm = Ctor(el, {
-        value: filesRef.current[activeRef.current] ?? "",
-        mode: modeFor(activeRef.current) ?? null,
-        theme: "dracula",
-        lineNumbers: true,
-        autoCloseBrackets: true,
-        lineWrapping: true,
-        tabSize: 2,
-      });
-      cm.on("change", handleChange);
-      cmRef.current = cm;
-      cm.refresh();
+      try {
+        const mod = (await import("codemirror")) as unknown as { default?: CMCtor };
+        const Ctor = mod.default ?? (mod as unknown as CMCtor);
+        await import("codemirror/addon/edit/closebrackets");
+        await import("codemirror/mode/xml/xml");
+        await import("codemirror/mode/javascript/javascript");
+        await import("codemirror/mode/css/css");
+        await import("codemirror/mode/htmlmixed/htmlmixed");
+        if (cancelled) return;
+        const el = editorMountRef.current;
+        if (!el) return;
+        cm = Ctor(el, {
+          value: filesRef.current[activeRef.current] ?? "",
+          mode: modeFor(activeRef.current) ?? null,
+          theme: "dracula",
+          lineNumbers: true,
+          autoCloseBrackets: true,
+          lineWrapping: true,
+          tabSize: 2,
+        });
+        cm.on("change", handleChange);
+        cmRef.current = cm;
+        cm.refresh();
+      } catch (e) {
+        console.error("CodeMirror init failed, using textarea fallback", e);
+        if (!cancelled) setCmFailed(true);
+      }
     })();
     return () => {
       cancelled = true;
@@ -730,7 +743,16 @@ export default function Editor({ id }: { id: string }) {
               </button>
             </div>
             <div className="editor-host">
-              <div ref={editorMountRef} style={{ height: "100%" }} />
+              {cmFailed ? (
+                <textarea
+                  className="editor-fallback"
+                  value={files[activeName] ?? ""}
+                  onChange={onFallbackChange}
+                  spellCheck={false}
+                />
+              ) : (
+                <div ref={editorMountRef} style={{ height: "100%" }} />
+              )}
             </div>
           </section>
         )}
