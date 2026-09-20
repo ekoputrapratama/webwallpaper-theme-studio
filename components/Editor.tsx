@@ -17,21 +17,8 @@ type ThemeMeta = {
   updatedAt: string;
 };
 
-type CodeMirrorHandle = {
-  getValue(): string;
-  setValue(v: string): void;
-  setOption(key: string, val: unknown): void;
-  on(type: string, cb: (...a: unknown[]) => void): void;
-  refresh(): void;
-  toTextArea(): void;
-  getWrapperElement(): HTMLElement;
-};
-
-type CodeMirrorCtor = (el: HTMLDivElement, opts: Record<string, unknown>) => CodeMirrorHandle;
-
 type Toast = { msg: string; kind: "ok" | "error" };
 
-const CM_BASE = "https://unpkg.com/codemirror@5.65.16";
 const PREFERRED = ["index.html", "style.css", "script.js"];
 
 function safeParse(body: string): unknown {
@@ -52,27 +39,6 @@ function themeContent(meta: ThemeMeta): string {
   lines.push(`thumbnail=${meta.thumbnail || ""}`);
   lines.push(`entry=${meta.entry || "index.html"}`);
   return lines.join("\n") + "\n";
-}
-
-function modeFor(name: string): string | null {
-  const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
-  switch (ext) {
-    case ".html":
-    case ".htm":
-      return "text/html";
-    case ".css":
-      return "text/css";
-    case ".js":
-    case ".mjs":
-      return "text/javascript";
-    case ".json":
-      return "application/json";
-    case ".svg":
-    case ".xml":
-      return "application/xml";
-    default:
-      return null;
-  }
 }
 
 function buildPreviewHtml(files: Record<string, string>, id: string): string {
@@ -104,73 +70,12 @@ function buildPreviewHtml(files: Record<string, string>, id: string): string {
   return html;
 }
 
-function loadCodeMirror(): Promise<"cm" | "text"> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const settle = (mode: "cm" | "text") => {
-      if (settled) return;
-      settled = true;
-      resolve(mode);
-    };
-
-    if (typeof window === "undefined") {
-      settle("text");
-      return;
-    }
-    if ((window as unknown as Record<string, unknown>).CodeMirror) {
-      settle("cm");
-      return;
-    }
-
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = `${CM_BASE}/lib/codemirror.css`;
-    const theme = document.createElement("link");
-    theme.rel = "stylesheet";
-    theme.href = `${CM_BASE}/theme/dracula.css`;
-    document.head.append(link, theme);
-
-    const scripts = [
-      `${CM_BASE}/lib/codemirror.js`,
-      `${CM_BASE}/addon/edit/closebrackets.js`,
-      `${CM_BASE}/mode/xml/xml.js`,
-      `${CM_BASE}/mode/javascript/javascript.js`,
-      `${CM_BASE}/mode/css/css.js`,
-      `${CM_BASE}/mode/htmlmixed/htmlmixed.js`,
-    ];
-    let remaining = scripts.length;
-    const done = () => {
-      if (--remaining !== 0) return;
-      setTimeout(() => {
-        const has = typeof (window as unknown as Record<string, unknown>).CodeMirror !== "undefined";
-        settle(has ? "cm" : "text");
-      }, 0);
-    };
-    for (const src of scripts) {
-      const s = document.createElement("script");
-      s.src = src;
-      s.async = false;
-      s.onload = done;
-      s.onerror = done;
-      document.head.appendChild(s);
-    }
-
-    // If the CDN never responds (blocked/hanging network), fall back to the
-    // built-in textarea instead of showing an empty editor forever.
-    window.setTimeout(() => {
-      const has = typeof (window as unknown as Record<string, unknown>).CodeMirror !== "undefined";
-      settle(has ? "cm" : "text");
-    }, 6000);
-  });
-}
-
 export default function Editor({ id }: { id: string }) {
   const router = useRouter();
   const [meta, setMeta] = useState<ThemeMeta | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [files, setFiles] = useState<Record<string, string>>({});
   const [activeName, setActiveName] = useState("index.html");
-  const [cmAvailable, setCmAvailable] = useState<"loading" | "cm" | "text">("loading");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("Loading…");
@@ -187,13 +92,10 @@ export default function Editor({ id }: { id: string }) {
   const [pubDonationUrl, setPubDonationUrl] = useState("");
   const [pubDonationLabel, setPubDonationLabel] = useState("");
 
-  const cmRef = useRef<CodeMirrorHandle | null>(null);
-  const cmMountRef = useRef<HTMLDivElement | null>(null);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const filesRef = useRef(files);
   const activeRef = useRef(activeName);
   const metaRef = useRef(meta);
-  const suppressRef = useRef(false);
   const scheduleRef = useRef<number>(0);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
@@ -254,20 +156,7 @@ export default function Editor({ id }: { id: string }) {
     };
   }, [id]);
 
-  /* --------------------------- codemirror load -------------------------- */
-
-  useEffect(() => {
-    if (cmAvailable !== "loading") return;
-    let live = true;
-    loadCodeMirror().then((mode) => {
-      if (live) setCmAvailable(mode);
-    });
-    return () => {
-      live = false;
-    };
-  }, [cmAvailable]);
-
-  /* ------------------------------ preview ------------------------------- */
+  /* ------------------------------ preview ------------------------------ */
 
   const buildPreview = useCallback(() => {
     setPreviewHtml(buildPreviewHtml(filesRef.current, id));
@@ -282,52 +171,6 @@ export default function Editor({ id }: { id: string }) {
     scheduleRef.current = window.setTimeout(() => setPreviewHtml(buildPreviewHtml(filesRef.current, id)), 300);
   }, [id]);
 
-  const handleChange = useCallback(() => {
-    if (suppressRef.current) return;
-    const cm = cmRef.current;
-    if (!cm) return;
-    const v = cm.getValue();
-    filesRef.current[activeRef.current] = v;
-    setFiles({ ...filesRef.current });
-    setDirty(true);
-    schedulePreview();
-  }, [schedulePreview]);
-
-  useEffect(() => {
-    if (cmAvailable !== "cm" || !cmMountRef.current) return;
-    const CodeMirrorGlobal = (window as unknown as { CodeMirror?: CodeMirrorCtor }).CodeMirror;
-    if (!CodeMirrorGlobal) return;
-    const cm = CodeMirrorGlobal(cmMountRef.current, {
-      value: filesRef.current[activeRef.current] ?? "",
-      mode: modeFor(activeRef.current) ?? null,
-      theme: "dracula",
-      lineNumbers: true,
-      autoCloseBrackets: true,
-      lineWrapping: true,
-      tabSize: 2,
-    });
-    cm.on("change", handleChange);
-    cm.refresh();
-    cmRef.current = cm;
-    return () => {
-      cmRef.current = null;
-      cm.getWrapperElement().remove();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cmAvailable]);
-
-  useEffect(() => {
-    if (cmAvailable !== "cm" || !cmRef.current) return;
-    const v = files[activeName] ?? "";
-    if (cmRef.current.getValue() !== v) {
-      suppressRef.current = true;
-      cmRef.current.setValue(v);
-      suppressRef.current = false;
-      cmRef.current.setOption("mode", modeFor(activeName) ?? null);
-      cmRef.current.refresh();
-    }
-  }, [files, activeName, cmAvailable]);
-
   function onFallbackChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     filesRef.current[activeRef.current] = e.target.value;
     setFiles({ ...filesRef.current });
@@ -339,9 +182,6 @@ export default function Editor({ id }: { id: string }) {
 
   function switchFile(name: string) {
     if (name === activeRef.current) return;
-    if (cmRef.current && cmAvailable === "cm") {
-      filesRef.current[activeRef.current] = cmRef.current.getValue();
-    }
     activeRef.current = name;
     setFiles({ ...filesRef.current });
     setActiveName(name);
@@ -358,9 +198,6 @@ export default function Editor({ id }: { id: string }) {
     if (filesRef.current[name] !== undefined) {
       toast("File already exists", "error");
       return;
-    }
-    if (cmRef.current && cmAvailable === "cm") {
-      filesRef.current[activeRef.current] = cmRef.current.getValue();
     }
     filesRef.current = { ...filesRef.current, [name]: "" };
     setFiles(filesRef.current);
@@ -800,21 +637,13 @@ export default function Editor({ id }: { id: string }) {
               </button>
             </div>
             <div className="editor-host">
-              {cmAvailable === "cm" ? (
-                <div ref={cmMountRef} style={{ height: "100%" }} />
-              ) : cmAvailable === "text" ? (
-                <textarea
-                  ref={taRef}
-                  className="editor-fallback"
-                  value={files[activeName] ?? ""}
-                  onChange={onFallbackChange}
-                  spellCheck={false}
-                />
-              ) : (
-                <div className="editor-fallback" style={{ color: "var(--muted)" }}>
-                  Loading editor…
-                </div>
-              )}
+              <textarea
+                ref={taRef}
+                className="editor-fallback"
+                value={files[activeName] ?? ""}
+                onChange={onFallbackChange}
+                spellCheck={false}
+              />
             </div>
           </section>
         )}
