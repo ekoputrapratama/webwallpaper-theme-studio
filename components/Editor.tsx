@@ -214,18 +214,32 @@ export default function Editor({ id }: { id: string }) {
   useEffect(() => {
     let cancelled = false;
     let cm: CMHandle | null = null;
+    const fail = (reason: unknown) => {
+      if (!cancelled) {
+        console.error("CodeMirror unusable, using textarea fallback", reason);
+        setCmFailed(true);
+      }
+    };
     (async () => {
       try {
-        const mod = (await import("codemirror")) as unknown as { default?: CMCtor };
-        const Ctor = mod.default ?? (mod as unknown as CMCtor);
-        await import("codemirror/addon/edit/closebrackets");
-        await import("codemirror/mode/xml/xml");
-        await import("codemirror/mode/javascript/javascript");
-        await import("codemirror/mode/css/css");
-        await import("codemirror/mode/htmlmixed/htmlmixed");
+        const timeout = new Promise<never>((_, reject) =>
+          window.setTimeout(() => reject(new Error("CodeMirror load timed out after 10s")), 10000)
+        );
+        const [mod] = await Promise.race([
+          Promise.all([
+            import("codemirror"),
+            import("codemirror/addon/edit/closebrackets"),
+            import("codemirror/mode/xml/xml"),
+            import("codemirror/mode/javascript/javascript"),
+            import("codemirror/mode/css/css"),
+            import("codemirror/mode/htmlmixed/htmlmixed"),
+          ]),
+          timeout,
+        ]);
         if (cancelled) return;
+        const Ctor = (mod as unknown as { default?: CMCtor }).default ?? (mod as unknown as CMCtor);
         const el = editorMountRef.current;
-        if (!el) return;
+        if (!el) return fail(new Error("editor mount node missing"));
         cm = Ctor(el, {
           value: filesRef.current[activeRef.current] ?? "",
           mode: modeFor(activeRef.current) ?? null,
@@ -238,9 +252,14 @@ export default function Editor({ id }: { id: string }) {
         cm.on("change", handleChange);
         cmRef.current = cm;
         cm.refresh();
+        if (el.getBoundingClientRect().height === 0) {
+          cmRef.current = null;
+          cm.getWrapperElement().remove();
+          cm = null;
+          return fail(new Error("editor mount node has zero height"));
+        }
       } catch (e) {
-        console.error("CodeMirror init failed, using textarea fallback", e);
-        if (!cancelled) setCmFailed(true);
+        fail(e);
       }
     })();
     return () => {
