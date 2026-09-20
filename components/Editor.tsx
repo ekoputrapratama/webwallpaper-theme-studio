@@ -1,10 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import { useRouter } from "next/navigation";
 import { uploadVideoToStorage, MULTIPART_SAFE_LIMIT, type VideoUpload } from "@/lib/client-upload";
-import "codemirror/lib/codemirror.css";
-import "codemirror/theme/dracula.css";
 
 type ThemeMeta = {
   id: string;
@@ -20,17 +18,6 @@ type ThemeMeta = {
 };
 
 type Toast = { msg: string; kind: "ok" | "error" };
-
-type CMHandle = {
-  getValue(): string;
-  setValue(v: string): void;
-  setOption(key: string, val: unknown): void;
-  on(type: string, cb: (...a: unknown[]) => void): void;
-  refresh(): void;
-  getWrapperElement(): HTMLElement;
-};
-
-type CMCtor = (el: HTMLDivElement, opts: Record<string, unknown>) => CMHandle;
 
 const PREFERRED = ["index.html", "style.css", "script.js"];
 
@@ -52,27 +39,6 @@ function themeContent(meta: ThemeMeta): string {
   lines.push(`thumbnail=${meta.thumbnail || ""}`);
   lines.push(`entry=${meta.entry || "index.html"}`);
   return lines.join("\n") + "\n";
-}
-
-function modeFor(name: string): string | null {
-  const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
-  switch (ext) {
-    case ".html":
-    case ".htm":
-      return "text/html";
-    case ".css":
-      return "text/css";
-    case ".js":
-    case ".mjs":
-      return "text/javascript";
-    case ".json":
-      return "application/json";
-    case ".svg":
-    case ".xml":
-      return "application/xml";
-    default:
-      return null;
-  }
 }
 
 function buildPreviewHtml(files: Record<string, string>, id: string): string {
@@ -104,6 +70,38 @@ function buildPreviewHtml(files: Record<string, string>, id: string): string {
   return html;
 }
 
+type CodeEditorProps = {
+  value: string;
+  onChange: (value: string) => void;
+  activeFileName: string;
+};
+
+function EditorFallback({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <textarea
+      className="editor-fallback"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      spellCheck={false}
+    />
+  );
+}
+
+function CodeEditorHost({
+  codeEditor: Comp,
+  value,
+  onChange,
+  activeFileName,
+}: CodeEditorProps & { codeEditor: ComponentType<CodeEditorProps> }) {
+  return <Comp value={value} onChange={onChange} activeFileName={activeFileName} />;
+}
+
 export default function Editor({ id }: { id: string }) {
   const router = useRouter();
   const [meta, setMeta] = useState<ThemeMeta | null>(null);
@@ -111,7 +109,6 @@ export default function Editor({ id }: { id: string }) {
   const [files, setFiles] = useState<Record<string, string>>({});
   const [activeName, setActiveName] = useState("index.html");
   const [dirty, setDirty] = useState(false);
-  const [cmFailed, setCmFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("Loading…");
   const [previewKey, setPreviewKey] = useState(0);
@@ -126,12 +123,42 @@ export default function Editor({ id }: { id: string }) {
   const [pubDonationUrl, setPubDonationUrl] = useState("");
   const [pubDonationLabel, setPubDonationLabel] = useState("");
 
-  const cmRef = useRef<CMHandle | null>(null);
-  const editorMountRef = useRef<HTMLDivElement | null>(null);
+  const [codeEditor, setCodeEditor] = useState<ComponentType<CodeEditorProps> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const timeout = new Promise<never>((_, reject) =>
+          window.setTimeout(() => reject(new Error("CodeMirror 6 load timed out after 10s")), 10000)
+        );
+        const [mod] = await Promise.race([
+          Promise.all([
+            import("./CodeEditor"),
+            import("@uiw/codemirror-theme-dracula"),
+            import("@codemirror/lang-html"),
+            import("@codemirror/lang-css"),
+            import("@codemirror/lang-javascript"),
+            import("@codemirror/lang-json"),
+          ]),
+          timeout,
+        ]);
+        if (cancelled) return;
+        const Comp = (mod as unknown as { default?: ComponentType<CodeEditorProps> }).default;
+        if (!Comp) throw new Error("CodeMirror 6 module has no default export");
+        setCodeEditor(() => Comp);
+      } catch (e) {
+        console.error("CodeMirror 6 unusable, using textarea fallback", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const filesRef = useRef(files);
   const activeRef = useRef(activeName);
   const metaRef = useRef(meta);
-  const suppressRef = useRef(false);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -196,103 +223,17 @@ export default function Editor({ id }: { id: string }) {
   const previewHtml =
     meta?.type === "html" ? buildPreviewHtml(files, id) : "";
 
-  const handleChange = useCallback(() => {
-    if (suppressRef.current) return;
-    const cm = cmRef.current;
-    if (!cm) return;
-    filesRef.current[activeRef.current] = cm.getValue();
-    setFiles({ ...filesRef.current });
-    setDirty(true);
-  }, []);
-
-  function onFallbackChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    filesRef.current[activeRef.current] = e.target.value;
+  function onCodeChange(value: string) {
+    filesRef.current[activeRef.current] = value;
     setFiles({ ...filesRef.current });
     setDirty(true);
   }
-
-  useEffect(() => {
-    let cancelled = false;
-    let cm: CMHandle | null = null;
-    const fail = (reason: unknown) => {
-      if (!cancelled) {
-        console.error("CodeMirror unusable, using textarea fallback", reason);
-        setCmFailed(true);
-      }
-    };
-    (async () => {
-      try {
-        const timeout = new Promise<never>((_, reject) =>
-          window.setTimeout(() => reject(new Error("CodeMirror load timed out after 10s")), 10000)
-        );
-        const [mod] = await Promise.race([
-          Promise.all([
-            import("codemirror"),
-            import("codemirror/addon/edit/closebrackets"),
-            import("codemirror/mode/xml/xml"),
-            import("codemirror/mode/javascript/javascript"),
-            import("codemirror/mode/css/css"),
-            import("codemirror/mode/htmlmixed/htmlmixed"),
-          ]),
-          timeout,
-        ]);
-        if (cancelled) return;
-        const Ctor = (mod as unknown as { default?: CMCtor }).default ?? (mod as unknown as CMCtor);
-        const el = editorMountRef.current;
-        if (!el) return fail(new Error("editor mount node missing"));
-        cm = Ctor(el, {
-          value: filesRef.current[activeRef.current] ?? "",
-          mode: modeFor(activeRef.current) ?? null,
-          theme: "dracula",
-          lineNumbers: true,
-          autoCloseBrackets: true,
-          lineWrapping: true,
-          tabSize: 2,
-        });
-        cm.on("change", handleChange);
-        cmRef.current = cm;
-        cm.refresh();
-        if (el.getBoundingClientRect().height === 0) {
-          cmRef.current = null;
-          cm.getWrapperElement().remove();
-          cm = null;
-          return fail(new Error("editor mount node has zero height"));
-        }
-      } catch (e) {
-        fail(e);
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (cm) {
-        cmRef.current = null;
-        cm.getWrapperElement().remove();
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handleChange]);
-
-  useEffect(() => {
-    const cm = cmRef.current;
-    if (!cm) return;
-    const v = files[activeName] ?? "";
-    if (cm.getValue() !== v) {
-      suppressRef.current = true;
-      cm.setValue(v);
-      suppressRef.current = false;
-      cm.setOption("mode", modeFor(activeName) ?? null);
-      cm.refresh();
-    }
-  }, [files, activeName]);
 
   /* ------------------------------- actions ------------------------------ */
 
   function switchFile(name: string) {
     if (name === activeRef.current) return;
-    const cm = cmRef.current;
-    if (cm) filesRef.current[activeRef.current] = cm.getValue();
     activeRef.current = name;
-    setFiles({ ...filesRef.current });
     setActiveName(name);
   }
 
@@ -308,8 +249,6 @@ export default function Editor({ id }: { id: string }) {
       toast("File already exists", "error");
       return;
     }
-    const cm = cmRef.current;
-    if (cm) filesRef.current[activeRef.current] = cm.getValue();
     filesRef.current = { ...filesRef.current, [name]: "" };
     setFiles(filesRef.current);
     setActiveName(name);
@@ -743,15 +682,15 @@ export default function Editor({ id }: { id: string }) {
               </button>
             </div>
             <div className="editor-host">
-              {cmFailed ? (
-                <textarea
-                  className="editor-fallback"
+              {codeEditor ? (
+                <CodeEditorHost
+                  codeEditor={codeEditor}
                   value={files[activeName] ?? ""}
-                  onChange={onFallbackChange}
-                  spellCheck={false}
+                  onChange={onCodeChange}
+                  activeFileName={activeName}
                 />
               ) : (
-                <div ref={editorMountRef} style={{ height: "100%" }} />
+                <EditorFallback value={files[activeName] ?? ""} onChange={onCodeChange} />
               )}
             </div>
           </section>

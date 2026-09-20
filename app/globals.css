@@ -837,17 +837,12 @@ code,
   position: relative;
 }
 
-.editor-host .cm-editor,
-.editor-host .CodeMirror {
+.editor-host .cm-editor {
   height: 100%;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.55;
   background: var(--panel);
-}
-
-.editor-host .CodeMirror {
-  height: 100%;
 }
 
 .editor-fallback {
