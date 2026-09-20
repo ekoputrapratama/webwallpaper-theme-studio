@@ -106,10 +106,22 @@ function buildPreviewHtml(files: Record<string, string>, id: string): string {
 
 function loadCodeMirror(): Promise<"cm" | "text"> {
   return new Promise((resolve) => {
-    if (typeof window !== "undefined" && (window as unknown as Record<string, unknown>).CodeMirror) {
-      resolve("cm");
+    let settled = false;
+    const settle = (mode: "cm" | "text") => {
+      if (settled) return;
+      settled = true;
+      resolve(mode);
+    };
+
+    if (typeof window === "undefined") {
+      settle("text");
       return;
     }
+    if ((window as unknown as Record<string, unknown>).CodeMirror) {
+      settle("cm");
+      return;
+    }
+
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = `${CM_BASE}/lib/codemirror.css`;
@@ -131,7 +143,7 @@ function loadCodeMirror(): Promise<"cm" | "text"> {
       if (--remaining !== 0) return;
       setTimeout(() => {
         const has = typeof (window as unknown as Record<string, unknown>).CodeMirror !== "undefined";
-        resolve(has ? "cm" : "text");
+        settle(has ? "cm" : "text");
       }, 0);
     };
     for (const src of scripts) {
@@ -142,6 +154,13 @@ function loadCodeMirror(): Promise<"cm" | "text"> {
       s.onerror = done;
       document.head.appendChild(s);
     }
+
+    // If the CDN never responds (blocked/hanging network), fall back to the
+    // built-in textarea instead of showing an empty editor forever.
+    window.setTimeout(() => {
+      const has = typeof (window as unknown as Record<string, unknown>).CodeMirror !== "undefined";
+      settle(has ? "cm" : "text");
+    }, 6000);
   });
 }
 
