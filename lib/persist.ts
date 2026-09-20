@@ -33,6 +33,26 @@ export function scratchProjectDir(id: string): string {
 
 const remote = remoteEnabled();
 
+const onVercel = process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV);
+
+if (onVercel && !remote) {
+  console.error(
+    '[persist] DURABLE STORAGE IS OFF ON A VERCEL DEPLOYMENT. Projects are written to the ephemeral ' +
+      '/tmp filesystem and WILL BE LOST between function invocations. Set on Vercel (Production + ' +
+      'Preview): FIREBASE_SERVICE_ACCOUNT_JSON (or FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + ' +
+      'FIREBASE_PRIVATE_KEY) and NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET, then redeploy.'
+  );
+}
+
+export function assertDurableStorage(): void {
+  if (onVercel && !remote) {
+    throw new Error(
+      'Durable storage (Firestore + Storage) is not configured on this deployment. Set ' +
+        'FIREBASE_SERVICE_ACCOUNT_JSON and NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET on Vercel, then redeploy.'
+    );
+  }
+}
+
 function projectPrefix(id: string): string {
   return `projects/${id}/`;
 }
@@ -131,6 +151,8 @@ export async function readProject(
   id: string,
   uid: string | null
 ): Promise<{ st: StoredProject | null; files: Record<string, string> }> {
+  assertDurableStorage();
+
   if (isRemote()) {
     const d = await readDoc(id);
     if (!d) return { st: null, files: {} };
@@ -183,6 +205,7 @@ export async function writeProject(
   uid: string | null,
   meta: ThemeMeta
 ): Promise<void> {
+  assertDurableStorage();
   if (isRemote()) {
     const d = await readDoc(id);
     const files = d ? filesFromDoc(d) : {};
@@ -199,6 +222,7 @@ export async function createProjectFromDir(
   dir: string,
   meta: ThemeMeta
 ): Promise<void> {
+  assertDurableStorage();
   if (!isRemote()) return;
 
   const files: Record<string, string> = {};

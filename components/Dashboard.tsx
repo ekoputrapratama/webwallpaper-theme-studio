@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { uploadVideoToStorage, type VideoUpload } from "@/lib/client-upload";
+import { uploadVideoToStorage, MULTIPART_SAFE_LIMIT, type VideoUpload } from "@/lib/client-upload";
 import { signOutClient } from "@/lib/firebase";
 
 type Project = {
@@ -174,7 +174,7 @@ export default function Dashboard() {
       return;
     }
 
-    setPhase("Uploading and generating preview.gif (this can take a moment)…");
+    setPhase("Uploading video to cloud storage… (a sign-in popup may appear)");
     setUploading(true);
     setProgress(0);
 
@@ -224,6 +224,21 @@ export default function Dashboard() {
             : "Upload failed"
       );
       return;
+    }
+
+    if (uploaded?.kind === "multipart" && uploaded.reason) {
+      const isLocal =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname.endsWith(".local");
+      if (!isLocal && file.size > MULTIPART_SAFE_LIMIT) {
+        setUploading(false);
+        setPhase("");
+        setModalError(
+          `This video (${(file.size / (1024 * 1024)).toFixed(1)} MB) is too large for a direct upload — the server accepts at most ~4.5 MB. ${uploaded.reason}`
+        );
+        return;
+      }
     }
 
     const xhr = new XMLHttpRequest();

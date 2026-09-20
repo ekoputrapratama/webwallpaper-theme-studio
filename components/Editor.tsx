@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { uploadVideoToStorage, type VideoUpload } from "@/lib/client-upload";
+import { uploadVideoToStorage, MULTIPART_SAFE_LIMIT, type VideoUpload } from "@/lib/client-upload";
 
 type ThemeMeta = {
   id: string;
@@ -446,6 +446,17 @@ export default function Editor({ id }: { id: string }) {
 
       const form = new FormData();
       form.append("video", uploaded.file);
+      if (uploaded.reason) {
+        const isLocal =
+          window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1" ||
+          window.location.hostname.endsWith(".local");
+        if (!isLocal && file.size > MULTIPART_SAFE_LIMIT) {
+          setVideoBusy(false);
+          toast(`This video (${(file.size / (1024 * 1024)).toFixed(1)} MB) is too large for a direct upload — the server accepts at most ~4.5 MB. ${uploaded.reason}`, "error");
+          return;
+        }
+      }
       const xhr = new XMLHttpRequest();
       xhr.open("POST", `/api/projects/${id}/video`);
       xhr.timeout = 15 * 60 * 1000;

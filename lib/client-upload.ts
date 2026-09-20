@@ -1,6 +1,7 @@
 'use client';
 
 import { getDownloadURL, getStorage, ref, uploadBytesResumable } from 'firebase/storage';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { getClientApp, getClientAuth } from '@/lib/firebase';
 
 export type VideoUpload =
@@ -9,23 +10,52 @@ export type VideoUpload =
 
 export const MULTIPART_SAFE_LIMIT = 4 * 1024 * 1024;
 
+function errCode(err: unknown): string {
+  return typeof err === 'object' && err !== null && 'code' in err
+    ? String((err as { code?: unknown }).code || 'unknown')
+    : 'unknown';
+}
+
 export async function uploadVideoToStorage(
   file: File,
   onProgress: (percentage: number) => void
 ): Promise<VideoUpload> {
   const app = getClientApp();
-  const auth = getClientAuth();
+  if (!app) {
+    return {
+      kind: 'multipart',
+      file,
+      reason:
+        'Firebase Storage is not configured in this build (missing NEXT_PUBLIC_FIREBASE_* env vars). Set them and redeploy so videos upload straight to storage.',
+    };
+  }
 
-  if (!app || !auth?.currentUser) {
-    const reason = !app
-      ? 'Firebase Storage is not configured in this build (missing NEXT_PUBLIC_FIREBASE_* env vars). Set them and redeploy so videos upload straight to storage.'
-      : 'You are not signed in to Firebase on this device. Refresh the page and sign in again.';
-    return { kind: 'multipart', file, reason };
+  const auth = getClientAuth();
+  if (!auth) {
+    return { kind: 'multipart', file, reason: 'Firebase client SDK could not be initialized.' };
+  }
+
+  if (!auth.currentUser) {
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (err) {
+      const code = errCode(err);
+      const reason =
+        code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request'
+          ? 'Sign-in was cancelled, so the video cannot be uploaded to cloud storage.'
+          : `Firebase sign-in failed (${code}). Check that the Auth providers are enabled and that the auth domain is set.`;
+      return { kind: 'multipart', file, reason };
+    }
+  }
+
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    return { kind: 'multipart', file, reason: 'Firebase sign-in did not complete.' };
   }
 
   try {
     const storage = getStorage(app);
-    const uid = auth.currentUser.uid;
+    const uid = currentUser.uid;
     const ext = file.name.includes('.') ? `.${file.name.split('.').pop()}` : '.mp4';
     const storagePath = `uploads/${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
 
@@ -40,7 +70,7 @@ export async function uploadVideoToStorage(
     const url = await getDownloadURL(ref(storage, storagePath));
     return { kind: 'blob', url };
   } catch (err) {
-    const code = (err as { code?: string } | null)?.code || 'unknown';
+    const code = errCode(err);
     console.warn(`[upload] Firebase Storage upload failed (${code}), falling back to direct upload.`, err);
     return {
       kind: 'multipart',
