@@ -130,6 +130,7 @@ export default function Dashboard() {
     setModalError("");
     setProgress(0);
     setPhase("");
+    if (user?.name) setAuthor(user.name);
   }
 
   function closeModal() {
