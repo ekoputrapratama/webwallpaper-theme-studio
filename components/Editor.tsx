@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { uploadVideoToStorage, MULTIPART_SAFE_LIMIT, type VideoUpload } from "@/lib/client-upload";
+import "codemirror/lib/codemirror.css";
+import "codemirror/theme/dracula.css";
 
 type ThemeMeta = {
   id: string;
@@ -18,6 +20,17 @@ type ThemeMeta = {
 };
 
 type Toast = { msg: string; kind: "ok" | "error" };
+
+type CMHandle = {
+  getValue(): string;
+  setValue(v: string): void;
+  setOption(key: string, val: unknown): void;
+  on(type: string, cb: (...a: unknown[]) => void): void;
+  refresh(): void;
+  getWrapperElement(): HTMLElement;
+};
+
+type CMCtor = (el: HTMLDivElement, opts: Record<string, unknown>) => CMHandle;
 
 const PREFERRED = ["index.html", "style.css", "script.js"];
 
@@ -39,6 +52,27 @@ function themeContent(meta: ThemeMeta): string {
   lines.push(`thumbnail=${meta.thumbnail || ""}`);
   lines.push(`entry=${meta.entry || "index.html"}`);
   return lines.join("\n") + "\n";
+}
+
+function modeFor(name: string): string | null {
+  const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
+  switch (ext) {
+    case ".html":
+    case ".htm":
+      return "text/html";
+    case ".css":
+      return "text/css";
+    case ".js":
+    case ".mjs":
+      return "text/javascript";
+    case ".json":
+      return "application/json";
+    case ".svg":
+    case ".xml":
+      return "application/xml";
+    default:
+      return null;
+  }
 }
 
 function buildPreviewHtml(files: Record<string, string>, id: string): string {
@@ -92,10 +126,12 @@ export default function Editor({ id }: { id: string }) {
   const [pubDonationUrl, setPubDonationUrl] = useState("");
   const [pubDonationLabel, setPubDonationLabel] = useState("");
 
-  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const cmRef = useRef<CMHandle | null>(null);
+  const editorMountRef = useRef<HTMLDivElement | null>(null);
   const filesRef = useRef(files);
   const activeRef = useRef(activeName);
   const metaRef = useRef(meta);
+  const suppressRef = useRef(false);
   const scheduleRef = useRef<number>(0);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
@@ -171,17 +207,72 @@ export default function Editor({ id }: { id: string }) {
     scheduleRef.current = window.setTimeout(() => setPreviewHtml(buildPreviewHtml(filesRef.current, id)), 300);
   }, [id]);
 
-  function onFallbackChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    filesRef.current[activeRef.current] = e.target.value;
+  const handleChange = useCallback(() => {
+    if (suppressRef.current) return;
+    const cm = cmRef.current;
+    if (!cm) return;
+    filesRef.current[activeRef.current] = cm.getValue();
     setFiles({ ...filesRef.current });
     setDirty(true);
     schedulePreview();
-  }
+  }, [schedulePreview]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let cm: CMHandle | null = null;
+    (async () => {
+      const mod = (await import("codemirror")) as unknown as { default?: CMCtor };
+      const Ctor = mod.default ?? (mod as unknown as CMCtor);
+      await import("codemirror/addon/edit/closebrackets");
+      await import("codemirror/mode/xml/xml");
+      await import("codemirror/mode/javascript/javascript");
+      await import("codemirror/mode/css/css");
+      await import("codemirror/mode/htmlmixed/htmlmixed");
+      if (cancelled) return;
+      const el = editorMountRef.current;
+      if (!el) return;
+      cm = Ctor(el, {
+        value: filesRef.current[activeRef.current] ?? "",
+        mode: modeFor(activeRef.current) ?? null,
+        theme: "dracula",
+        lineNumbers: true,
+        autoCloseBrackets: true,
+        lineWrapping: true,
+        tabSize: 2,
+      });
+      cm.on("change", handleChange);
+      cmRef.current = cm;
+      cm.refresh();
+    })();
+    return () => {
+      cancelled = true;
+      if (cm) {
+        cmRef.current = null;
+        cm.getWrapperElement().remove();
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleChange]);
+
+  useEffect(() => {
+    const cm = cmRef.current;
+    if (!cm) return;
+    const v = files[activeName] ?? "";
+    if (cm.getValue() !== v) {
+      suppressRef.current = true;
+      cm.setValue(v);
+      suppressRef.current = false;
+      cm.setOption("mode", modeFor(activeName) ?? null);
+      cm.refresh();
+    }
+  }, [files, activeName]);
 
   /* ------------------------------- actions ------------------------------ */
 
   function switchFile(name: string) {
     if (name === activeRef.current) return;
+    const cm = cmRef.current;
+    if (cm) filesRef.current[activeRef.current] = cm.getValue();
     activeRef.current = name;
     setFiles({ ...filesRef.current });
     setActiveName(name);
@@ -199,6 +290,8 @@ export default function Editor({ id }: { id: string }) {
       toast("File already exists", "error");
       return;
     }
+    const cm = cmRef.current;
+    if (cm) filesRef.current[activeRef.current] = cm.getValue();
     filesRef.current = { ...filesRef.current, [name]: "" };
     setFiles(filesRef.current);
     setActiveName(name);
@@ -637,13 +730,7 @@ export default function Editor({ id }: { id: string }) {
               </button>
             </div>
             <div className="editor-host">
-              <textarea
-                ref={taRef}
-                className="editor-fallback"
-                value={files[activeName] ?? ""}
-                onChange={onFallbackChange}
-                spellCheck={false}
-              />
+              <div ref={editorMountRef} style={{ height: "100%" }} />
             </div>
           </section>
         )}
