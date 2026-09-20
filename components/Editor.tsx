@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { uploadVideoToStorage, MULTIPART_SAFE_LIMIT, type VideoUpload } from "@/lib/client-upload";
 import "codemirror/lib/codemirror.css";
@@ -114,7 +114,6 @@ export default function Editor({ id }: { id: string }) {
   const [cmFailed, setCmFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("Loading…");
-  const [previewHtml, setPreviewHtml] = useState("");
   const [previewKey, setPreviewKey] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [videoBusy, setVideoBusy] = useState(false);
@@ -133,7 +132,6 @@ export default function Editor({ id }: { id: string }) {
   const activeRef = useRef(activeName);
   const metaRef = useRef(meta);
   const suppressRef = useRef(false);
-  const scheduleRef = useRef<number>(0);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -195,18 +193,8 @@ export default function Editor({ id }: { id: string }) {
 
   /* ------------------------------ preview ------------------------------ */
 
-  const buildPreview = useCallback(() => {
-    setPreviewHtml(buildPreviewHtml(filesRef.current, id));
-  }, [id]);
-
-  useEffect(() => {
-    if (meta?.type === "html") buildPreview();
-  }, [meta?.type, buildPreview]);
-
-  const schedulePreview = useCallback(() => {
-    window.clearTimeout(scheduleRef.current);
-    scheduleRef.current = window.setTimeout(() => setPreviewHtml(buildPreviewHtml(filesRef.current, id)), 300);
-  }, [id]);
+  const previewHtml =
+    meta?.type === "html" ? buildPreviewHtml(files, id) : "";
 
   const handleChange = useCallback(() => {
     if (suppressRef.current) return;
@@ -215,14 +203,12 @@ export default function Editor({ id }: { id: string }) {
     filesRef.current[activeRef.current] = cm.getValue();
     setFiles({ ...filesRef.current });
     setDirty(true);
-    schedulePreview();
-  }, [schedulePreview]);
+  }, []);
 
   function onFallbackChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     filesRef.current[activeRef.current] = e.target.value;
     setFiles({ ...filesRef.current });
     setDirty(true);
-    schedulePreview();
   }
 
   useEffect(() => {
@@ -523,11 +509,6 @@ export default function Editor({ id }: { id: string }) {
     window.addEventListener("beforeunload", h);
     return () => window.removeEventListener("beforeunload", h);
   }, [dirty]);
-
-  useEffect(
-    () => () => window.clearTimeout(scheduleRef.current),
-    []
-  );
 
   /* ------------------------------- render -------------------------------- */
 
