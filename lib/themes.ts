@@ -367,7 +367,7 @@ export async function buildVideoTheme(
       entry: meta.entry,
     })
   );
-  writeProject(id, meta);
+  fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify(meta, null, 2) + '\n');
   return meta;
 }
 

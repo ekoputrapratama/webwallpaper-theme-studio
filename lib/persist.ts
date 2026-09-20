@@ -389,6 +389,7 @@ export async function buildProjectZip(id: string, uid: string | null): Promise<B
   if (isRemote()) {
     const d = await readDoc(id);
     if (!d || (uid && String(d.uid || '') !== uid)) throw new Error('Project not found');
+    zip.file('project.json', JSON.stringify(shapeMeta(id, d), null, 2) + '\n');
     for (const [name, content] of Object.entries(filesFromDoc(d))) {
       zip.file(name, content);
     }
@@ -403,6 +404,8 @@ export async function buildProjectZip(id: string, uid: string | null): Promise<B
   } else {
     const dir = projectDir(id);
     if (!fs.existsSync(dir)) throw new Error('Project not found');
+    const pj = path.join(dir, 'project.json');
+    if (fs.existsSync(pj)) zip.file('project.json', fs.readFileSync(pj));
     const walk = (rel: string) => {
       const abs = path.join(dir, rel);
       const st = fs.statSync(abs);
