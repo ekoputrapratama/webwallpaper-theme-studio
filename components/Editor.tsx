@@ -921,7 +921,7 @@ export default function Editor({ id }: { id: string }) {
           {isVideo ? (
             <iframe className="preview-frame" key={previewKey} src={`/p/${id}/index.html`} title="Live theme preview" />
           ) : (
-            <iframe className="preview-frame" srcDoc={previewHtml} title="Live theme preview" />
+            <iframe className="preview-frame"  srcDoc={previewHtml} allow="accelerometer *; ambient-light-sensor *; camera *; display-capture *; encrypted-media *; geolocation *; gyroscope *; microphone *; midi *; payment *; serial *; vr *; web-share *; xr-spatial-tracking *" title="Live theme preview" allowFullScreen allowTransparency sandbox="allow-downloads allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts allow-top-navigation-by-user-activation"/>
           )}
         </section>
       </div>
