@@ -726,6 +726,15 @@ code,
   margin: 4px 0 12px;
 }
 
+.rename-hint {
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.rename-muted {
+  color: var(--muted);
+}
+
 .theme-preview {
   width: 100%;
   min-height: 130px;
@@ -828,6 +837,61 @@ code,
 .tabs-add:hover {
   color: var(--text);
   background: var(--panel);
+}
+
+.tabs-upload {
+  margin-left: 4px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.tabs-upload:hover {
+  color: var(--accent-2);
+  background: var(--panel);
+}
+
+.tabs-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  flex-shrink: 0;
+  background: var(--border);
+}
+
+.file-tab.asset {
+  color: #8ea2c0;
+  font-style: italic;
+}
+
+.file-tab.asset:hover {
+  color: var(--text);
+}
+
+.file-tab .asset-ico {
+  font-size: 11px;
+  font-style: normal;
+  opacity: 0.8;
+}
+
+.upload-progress {
+  height: 3px;
+  margin: 0 10px 5px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.upload-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 0.15s ease;
 }
 
 .editor-host {

@@ -3,17 +3,7 @@ import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { adminStorageBucketName, getAdminStorage, isFirebaseAdminConfigured } from './firebase-admin';
-
-const MIME_BY_EXT: Record<string, string> = {
-  '.mp4': 'video/mp4',
-  '.m4v': 'video/mp4',
-  '.mov': 'video/quicktime',
-  '.webm': 'video/webm',
-  '.ogv': 'video/ogg',
-  '.gif': 'image/gif',
-  '.png': 'image/png',
-  '.zip': 'application/zip',
-};
+import { mimeFor } from './mime';
 
 export function isFirebaseStorageConfigured(): boolean {
   return isFirebaseAdminConfigured() && Boolean(adminStorageBucketName());
@@ -61,10 +51,9 @@ export interface StorageObject {
 }
 
 export async function storagePut(storagePath: string, data: Buffer): Promise<void> {
-  const ext = storagePath.slice(storagePath.lastIndexOf('.')).toLowerCase();
   await bucket().file(storagePath).save(data, {
     resumable: false,
-    metadata: { contentType: MIME_BY_EXT[ext] || 'application/octet-stream' },
+    metadata: { contentType: mimeFor(storagePath) || 'application/octet-stream' },
   });
 }
 

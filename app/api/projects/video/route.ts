@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { buildVideoTheme, slugify, tmpVideoPath } from '@/lib/themes';
+import { buildVideoTheme, tmpVideoPath } from '@/lib/themes';
 import { downloadUrlToFile, isFirebaseStorageConfigured, tmpFileNameFromUrl } from '@/lib/storage';
-import { createProjectFromDir, remoteEnabled, scratchProjectDir, uniqueProjectId } from '@/lib/persist';
+import { createProjectFromDir, newProjectId, remoteEnabled, scratchProjectDir } from '@/lib/persist';
 import { getRequestUser } from '@/lib/auth';
 
 export const runtime = 'nodejs';
@@ -91,7 +91,7 @@ export async function POST(request: Request) {
       await saveUpload(file, tmpPath);
     }
 
-    const id = await uniqueProjectId(slugify(meta.name));
+    const id = await newProjectId();
     dir = scratchProjectDir(id);
     fs.mkdirSync(dir, { recursive: true });
 

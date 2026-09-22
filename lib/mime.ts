@@ -1,0 +1,57 @@
+export const MIME_BY_EXT: Record<string, string> = {
+  '.html': 'text/html',
+  '.htm': 'text/html',
+  '.css': 'text/css',
+  '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.gif': 'image/gif',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.bmp': 'image/bmp',
+  '.avif': 'image/avif',
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
+  '.ogv': 'video/ogg',
+  '.ogg': 'video/ogg',
+  '.mkv': 'video/x-matroska',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.txt': 'text/plain',
+  '.csv': 'text/csv',
+  '.xml': 'application/xml',
+  '.md': 'text/plain',
+  '.theme': 'text/plain',
+  '.glsl': 'text/plain',
+  '.vert': 'text/plain',
+  '.frag': 'text/plain',
+  '.vs': 'text/plain',
+  '.fs': 'text/plain',
+  '.wasm': 'application/wasm',
+  '.zip': 'application/zip',
+};
+
+export const ASSET_EXTS = new Set<string>([
+  ...Object.keys(MIME_BY_EXT),
+  '.scss',
+  '.sass',
+  '.ts',
+  '.map',
+  '.webmanifest',
+  '.eot',
+]);
+
+export function mimeFor(name: string): string {
+  const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
+  return MIME_BY_EXT[ext] || '';
+}

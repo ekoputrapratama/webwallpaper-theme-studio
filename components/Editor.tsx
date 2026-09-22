@@ -21,6 +21,15 @@ type Toast = { msg: string; kind: "ok" | "error" };
 
 const PREFERRED = ["index.html", "style.css", "script.js"];
 
+const MAX_ASSET_BYTES = 4 * 1024 * 1024;
+
+const ASSET_ACCEPT = [
+  ".js", ".mjs", ".css", ".scss", ".json", ".txt", ".md", ".xml", ".csv",
+  ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".avif",
+  ".mp3", ".wav", ".ogg", ".woff", ".woff2", ".ttf", ".otf", ".eot",
+  ".zip", ".wasm", ".glsl", ".vert", ".frag", ".vs", ".fs", ".map",
+].join(",");
+
 function safeParse(body: string): unknown {
   if (!body) return null;
   try {
@@ -86,6 +95,18 @@ const CAPTURE_BOOTSTRAP = `
 (function () {
   if (window.__wwCapInstalled) return;
   window.__wwCapInstalled = true;
+  // Themes rarely pass preserveDrawingBuffer, so a WebGL canvas may be cleared
+  // before toDataURL can read it, yielding black frames. Force it on for any
+  // WebGL context created while capturing so every sample reads the last draw.
+  try {
+    var origGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (type, attrs) {
+      if (type === 'webgl' || type === 'experimental-webgl' || type === 'webgl2') {
+        attrs = Object.assign({}, attrs || {}, { preserveDrawingBuffer: true });
+      }
+      return origGetContext.call(this, type, attrs);
+    };
+  } catch (e) {}
   var fps = __WW_FPS__, seconds = __WW_SECONDS__, frames = [], startedAt = 0, lastAt = 0, active = false, sampler = null;
   var origRaf = window.requestAnimationFrame;
   function needs() { return Math.max(1, Math.ceil(seconds * fps)); }
@@ -197,10 +218,13 @@ export default function Editor({ id }: { id: string }) {
   const [meta, setMeta] = useState<ThemeMeta | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [files, setFiles] = useState<Record<string, string>>({});
+  const [assets, setAssets] = useState<string[]>([]);
   const [activeName, setActiveName] = useState("index.html");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("Loading…");
+  const [uploadingName, setUploadingName] = useState<string | null>(null);
+  const [uploadPct, setUploadPct] = useState(0);
   const [previewKey, setPreviewKey] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [videoBusy, setVideoBusy] = useState(false);
@@ -259,6 +283,7 @@ export default function Editor({ id }: { id: string }) {
   const activeRef = useRef(activeName);
   const metaRef = useRef(meta);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const assetInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     filesRef.current = files;
@@ -288,7 +313,7 @@ export default function Editor({ id }: { id: string }) {
           return;
         }
         if (!res.ok) throw new Error("Failed to load project");
-        const detail = (await res.json()) as { meta: ThemeMeta };
+        const detail = (await res.json()) as { meta: ThemeMeta; files?: string[] };
         if (cancelled) return;
         setMeta(detail.meta);
 
@@ -301,6 +326,16 @@ export default function Editor({ id }: { id: string }) {
         if (!cancelled) {
           filesRef.current = f;
           setFiles(f);
+          const fileNames = detail.files || [];
+          const assetNames = fileNames.filter(
+            (n) =>
+              n &&
+              !n.startsWith(".") &&
+              n !== "project.json" &&
+              n !== "preview.gif" &&
+              f[n] === undefined
+          );
+          setAssets(assetNames);
           const preferred = PREFERRED.filter((p) => f[p] !== undefined);
           setActiveName(preferred[0] ?? Object.keys(f)[0] ?? "index.html");
           setStatus("Ready");
@@ -367,6 +402,89 @@ export default function Editor({ id }: { id: string }) {
     setDirty(true);
   }
 
+  function uploadOne(file: File, onProgress: (pct: number) => void): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const form = new FormData();
+      form.append("files", file);
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `/api/projects/${id}/files/upload`);
+      xhr.timeout = 120 * 1000;
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+      xhr.onload = () => {
+        const d = safeParse(xhr.responseText) as { error?: string } | null;
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve();
+        } else {
+          reject(new Error(d?.error || `Upload failed (HTTP ${xhr.status})`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Upload failed"));
+      xhr.ontimeout = () => reject(new Error("Upload timed out"));
+      xhr.send(form);
+    });
+  }
+
+  async function uploadFiles(fileList: FileList | null) {
+    if (!fileList || !fileList.length) return;
+    const list = Array.from(fileList);
+    const uploaded: string[] = [];
+    let firstErr = "";
+    for (const file of list) {
+      const name = file.name;
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) {
+        firstErr = `Invalid file name: ${name}`;
+        toast(firstErr, "error");
+        continue;
+      }
+      if (name === "index.html" || name === "project.json") {
+        firstErr = `Cannot upload ${name}`;
+        toast(firstErr, "error");
+        continue;
+      }
+      if (filesRef.current[name] !== undefined) {
+        firstErr = `${name} is already an editable file — edit it directly instead`;
+        toast(firstErr, "error");
+        continue;
+      }
+      if (file.size > MAX_ASSET_BYTES) {
+        firstErr = `${name} (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the 4 MB upload limit`;
+        toast(firstErr, "error");
+        continue;
+      }
+      try {
+        setUploadingName(name);
+        setUploadPct(0);
+        await uploadOne(file, setUploadPct);
+        uploaded.push(name);
+        setAssets((prev) => (prev.includes(name) ? prev : [...prev, name]));
+        setPreviewKey((k) => k + 1);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Upload failed";
+        firstErr = msg;
+        toast(`${name}: ${msg}`, "error");
+      }
+    }
+    setUploadingName(null);
+    setUploadPct(0);
+    if (assetInputRef.current) assetInputRef.current.value = "";
+    if (uploaded.length) {
+      setStatus(`Uploaded ${uploaded.length} file${uploaded.length > 1 ? "s" : ""}`);
+      toast(`Uploaded ${uploaded.join(", ")}`);
+    } else if (!firstErr) {
+      setStatus("Ready");
+    }
+  }
+
+  async function removeAsset(name: string) {
+    if (!window.confirm(`Delete uploaded asset ${name}?`)) return;
+    await fetch(`/api/projects/${id}/files/${encodeURIComponent(name)}`, { method: "DELETE" }).catch(() => {});
+    setAssets((prev) => prev.filter((n) => n !== name));
+    setPreviewKey((k) => k + 1);
+    setStatus("Ready");
+  }
+
   async function save() {
     if (!meta) return;
     setSaving(true);
@@ -380,11 +498,15 @@ export default function Editor({ id }: { id: string }) {
         thumbnail: meta.thumbnail,
         entry: meta.entry,
       };
+      const filesToSave = {
+        ...filesRef.current,
+        [`${id}.theme`]: themeContent(meta),
+      };
       const [fRes, mRes] = await Promise.all([
         fetch(`/api/projects/${id}/files`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ files: filesRef.current }),
+          body: JSON.stringify({ files: filesToSave }),
         }),
         fetch(`/api/projects/${id}/meta`, {
           method: "PUT",
@@ -696,14 +818,16 @@ export default function Editor({ id }: { id: string }) {
   }
 
   const isVideo = meta.type === "video";
-  const tabNames = [...Object.keys(files)].sort((a, b) => {
-    const ia = PREFERRED.indexOf(a);
-    const ib = PREFERRED.indexOf(b);
-    if (ia !== -1 && ib !== -1) return ia - ib;
-    if (ia !== -1) return -1;
-    if (ib !== -1) return 1;
-    return a.localeCompare(b);
-  });
+  const tabNames = [...Object.keys(files)]
+    .filter((name) => name !== `${id}.theme`)
+    .sort((a, b) => {
+      const ia = PREFERRED.indexOf(a);
+      const ib = PREFERRED.indexOf(b);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return a.localeCompare(b);
+    });
   const thumbSrc = meta.thumbnail ? `/p/${id}/${meta.thumbnail}` : "";
 
   return (
@@ -745,6 +869,15 @@ export default function Editor({ id }: { id: string }) {
 
       <div className="editor-layout">
         <aside className="meta-panel">
+          <div className="field">
+            <label>Project ID</label>
+            <input value={meta.id} readOnly spellCheck={false} />
+            <div className="rename-hint">
+              <span className="rename-muted">
+                This is the unique id used in the URL and storage.
+              </span>
+            </div>
+          </div>
           <h3>Theme manifest (.theme)</h3>
           <div className="field">
             <label>Name</label>
@@ -879,10 +1012,58 @@ export default function Editor({ id }: { id: string }) {
                   )}
                 </button>
               ))}
+              {assets.length > 0 && <span className="tabs-sep" />}
+              {assets.map((name) => (
+                <button
+                  key={name}
+                  className="file-tab asset"
+                  title="Uploaded asset — click to copy its URL"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(`/p/${id}/${name}`).then(
+                      () => toast(`Copied /p/${id}/${name}`),
+                      () => toast(`/p/${id}/${name}`, "error")
+                    );
+                  }}
+                >
+                  <span className="asset-ico">⚡</span>
+                  {name}
+                  <span
+                    className="x"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeAsset(name);
+                    }}
+                  >
+                    ×
+                  </span>
+                </button>
+              ))}
+              <button
+                className="tabs-upload"
+                title="Upload files to this project (JS, CSS, images, fonts — e.g. jQuery or Bootstrap). They are served from /p/{id}/… and included in the .zip."
+                onClick={() => assetInputRef.current?.click()}
+              >
+                ⬆
+              </button>
               <button className="tabs-add" title="Add file" onClick={addFile}>
                 +
               </button>
+              <input
+                ref={assetInputRef}
+                type="file"
+                multiple
+                accept={ASSET_ACCEPT}
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  uploadFiles(e.target.files);
+                }}
+              />
             </div>
+            {uploadingName && (
+              <div className="upload-progress" title={`Uploading ${uploadingName}… ${uploadPct}%`}>
+                <div className="upload-progress-fill" style={{ width: `${uploadPct}%` }} />
+              </div>
+            )}
             <div className="editor-host">
               {codeEditor ? (
                 <CodeEditorHost
@@ -921,7 +1102,7 @@ export default function Editor({ id }: { id: string }) {
           {isVideo ? (
             <iframe className="preview-frame" key={previewKey} src={`/p/${id}/index.html`} title="Live theme preview" />
           ) : (
-            <iframe className="preview-frame"  srcDoc={previewHtml} allow="accelerometer *; ambient-light-sensor *; camera *; display-capture *; encrypted-media *; geolocation *; gyroscope *; microphone *; midi *; payment *; serial *; vr *; web-share *; xr-spatial-tracking *" title="Live theme preview" allowFullScreen allowTransparency sandbox="allow-downloads allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts allow-top-navigation-by-user-activation"/>
+            <iframe className="preview-frame" srcDoc={previewHtml} allow="accelerometer *; ambient-light-sensor *; camera *; display-capture *; encrypted-media *; geolocation *; gyroscope *; microphone *; midi *; payment *; serial *; vr *; web-share *; xr-spatial-tracking *" title="Live theme preview" allowFullScreen allowTransparency sandbox="allow-downloads allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-presentation allow-same-origin allow-scripts allow-top-navigation-by-user-activation" />
           )}
         </section>
       </div>

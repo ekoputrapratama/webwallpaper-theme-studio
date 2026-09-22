@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_HTML_FILES, slugify, themeContent, type ThemeMeta } from '@/lib/themes';
-import { createProjectFromDir, listProjects, scratchProjectDir, uniqueProjectId } from '@/lib/persist';
+import { DEFAULT_HTML_FILES, themeContent, type ThemeMeta } from '@/lib/themes';
+import { createProjectFromDir, listProjects, newProjectId, scratchProjectDir } from '@/lib/persist';
 import { getRequestUser } from '@/lib/auth';
 
 export const runtime = 'nodejs';
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     const name = String(body.name || '').trim();
     if (!name) return Response.json({ error: 'Project name is required' }, { status: 400 });
 
-    const id = await uniqueProjectId(slugify(name));
+    const id = await newProjectId();
     const dir = scratchProjectDir(id);
     fs.mkdirSync(dir, { recursive: true });
 
