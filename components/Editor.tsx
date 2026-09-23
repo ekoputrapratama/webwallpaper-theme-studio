@@ -15,6 +15,7 @@ type ThemeMeta = {
   entry: string;
   video: string | null;
   updatedAt: string;
+  publishedThemeId?: string | null;
 };
 
 type Toast = { msg: string; kind: "ok" | "error" };
@@ -244,7 +245,6 @@ export default function Editor({ id }: { id: string }) {
   const [publishDone, setPublishDone] = useState<Record<string, string> | null>(null);
   const [pubTags, setPubTags] = useState("");
   const [pubDonationUrl, setPubDonationUrl] = useState("");
-  const [pubDonationLabel, setPubDonationLabel] = useState("");
 
   const [codeEditor, setCodeEditor] = useState<ComponentType<CodeEditorProps> | null>(null);
 
@@ -543,6 +543,18 @@ export default function Editor({ id }: { id: string }) {
   function openPublish() {
     setPublishErr("");
     setPublishDone(null);
+    setPubTags(meta?.publishedThemeId ? "" : pubTags);
+    if (meta?.publishedThemeId) {
+      fetch(`/api/themes/publish?id=${encodeURIComponent(id)}`)
+        .then((r) => r.json().catch(() => ({})))
+        .then((d) => {
+          if (d && d.publishedThemeId) {
+            if (Array.isArray(d.tags) && d.tags.length) setPubTags(d.tags.join(", "));
+            if (typeof d.donation_url === "string") setPubDonationUrl(d.donation_url);
+          }
+        })
+        .catch(() => {});
+    }
     setPublishOpen(true);
   }
 
@@ -558,14 +570,14 @@ export default function Editor({ id }: { id: string }) {
           id,
           tags: pubTags.split(",").map((t) => t.trim()).filter(Boolean),
           donation_url: pubDonationUrl.trim(),
-          donation_label: pubDonationLabel.trim(),
         }),
         signal: AbortSignal.timeout(15 * 60 * 1000),
       });
       const data = (await res.json().catch(() => ({}))) as Record<string, string>;
       if (res.ok && data.id) {
         setPublishDone(data);
-        toast("Published to WebKit Wallpaper");
+        if (data.id) setMeta((m) => (m ? { ...m, publishedThemeId: data.id } : m));
+        toast(meta?.publishedThemeId ? "Theme updated on WebKit Wallpaper" : "Published to WebKit Wallpaper");
       } else {
         setPublishErr(data.error || `Publish failed (HTTP ${res.status})`);
       }
@@ -858,8 +870,8 @@ export default function Editor({ id }: { id: string }) {
         <button className="btn" onClick={exportZip} title="Download as .zip for WebWallpaper">
           ⬇ .zip
         </button>
-        <button className="btn btn-primary" onClick={openPublish} title="Publish this theme to webkit-wallpaper.web.app">
-          Publish ↗
+        <button className="btn btn-primary" onClick={openPublish} title={meta?.publishedThemeId ? "Update this theme on webkit-wallpaper.web.app" : "Publish this theme to webkit-wallpaper.web.app"}>
+          {meta?.publishedThemeId ? "Update ↗" : "Publish ↗"}
         </button>
         <button className="btn btn-primary" onClick={save} disabled={saving || isVideo && false}>
           {saving && <span className="spin" />}
@@ -1173,12 +1185,21 @@ export default function Editor({ id }: { id: string }) {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 style={{ margin: "0 0 12px" }}>
-              {publishDone ? "Published to WebKit Wallpaper" : "Publish to WebKit Wallpaper"}
+              {publishDone
+                ? meta?.publishedThemeId
+                  ? "Updated on WebKit Wallpaper"
+                  : "Published to WebKit Wallpaper"
+                : meta?.publishedThemeId
+                  ? "Update Theme on WebKit Wallpaper"
+                  : "Publish to WebKit Wallpaper"}
             </h3>
             {publishDone ? (
               <div>
                 <p style={{ margin: "0 0 12px", color: "var(--muted)" }}>
-                  Your theme is live on the gallery at <a href={publishDone.siteUrl} target="_blank" rel="noreferrer">webkit-wallpaper.web.app ↗</a>
+                  {meta?.publishedThemeId
+                    ? "Your theme has been updated. It is live on the gallery at "
+                    : "Your theme is live on the gallery at "}
+                  <a href={publishDone.siteUrl} target="_blank" rel="noreferrer">webkit-wallpaper.web.app ↗</a>
                 </p>
                 <div style={{ display: "flex", justifyContent: "flex-end" }}>
                   <button className="btn btn-primary" onClick={() => setPublishOpen(false)}>
@@ -1204,17 +1225,10 @@ export default function Editor({ id }: { id: string }) {
                     placeholder="https://ko-fi.com/you"
                   />
                 </div>
-                <div className="field">
-                  <label>Donation label</label>
-                  <input
-                    value={pubDonationLabel}
-                    onChange={(e) => setPubDonationLabel(e.target.value)}
-                    placeholder="Support me"
-                  />
-                </div>
                 <p style={{ fontSize: 11.5, color: "var(--muted)", margin: "0 0 12px" }}>
-                  Publishes <code>wallpaper.zip</code> + <code>preview.gif</code> using your current name,
-                  description and author.
+                  {meta?.publishedThemeId
+                    ? "Updates your already-published theme's wallpaper.zip, preview.gif and info. URLs and downloads stay the same."
+                    : "Publishes wallpaper.zip + preview.gif using your current name, description and author."}
                 </p>
                 {publishErr && (
                   <p style={{ color: "#f87171", fontSize: 13, margin: "0 0 10px" }}>{publishErr}</p>
@@ -1224,7 +1238,7 @@ export default function Editor({ id }: { id: string }) {
                     Cancel
                   </button>
                   <button className="btn btn-primary" onClick={publishTheme} disabled={publishBusy}>
-                    {publishBusy && <span className="spin" />} Publish
+                    {publishBusy && <span className="spin" />} {meta?.publishedThemeId ? "Update" : "Publish"}
                   </button>
                 </div>
               </div>

@@ -45,6 +45,7 @@ export type ThemeMeta = {
   entry: string;
   video: string | null;
   updatedAt: string;
+  publishedThemeId?: string | null;
 };
 
 export type ProjectSummary = {

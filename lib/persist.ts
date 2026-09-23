@@ -92,6 +92,7 @@ function shapeMeta(id: string, d: Record<string, unknown>): ThemeMeta {
     entry: String(d.entry || "index.html"),
     video: d.video ? String(d.video) : null,
     updatedAt: String(d.updatedAt || ""),
+    publishedThemeId: d.publishedThemeId ? String(d.publishedThemeId) : null,
   };
 }
 
